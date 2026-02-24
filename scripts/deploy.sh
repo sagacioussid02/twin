@@ -22,11 +22,7 @@ terraform init -input=false \
   -backend-config="dynamodb_table=twin-terraform-locks" \
   -backend-config="encrypt=true"
 
-if ! terraform workspace list | grep -q "$ENVIRONMENT"; then
-  terraform workspace new "$ENVIRONMENT"
-else
-  terraform workspace select "$ENVIRONMENT"
-fi
+# Note: Workspaces are not used - state is managed by key path
 
 # Use prod.tfvars for production environment
 if [ "$ENVIRONMENT" = "prod" ]; then
