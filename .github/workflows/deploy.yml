@@ -56,6 +56,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Initialize Terraform
+        working-directory: ./terraform
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform init -input=false \
+            -backend-config="bucket=twin-terraform-state-${AWS_ACCOUNT_ID}" \
+            -backend-config="key=${{ github.event.inputs.environment || 'dev' }}/terraform.tfstate" \
+            -backend-config="region=${{ secrets.DEFAULT_AWS_REGION }}" \
+            -backend-config="dynamodb_table=twin-terraform-locks" \
+            -backend-config="encrypt=true"
+
       - name: Run Deployment Script
         run: |
           # Set environment variables for the script
@@ -75,6 +86,16 @@ jobs:
           echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
           echo "api_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
           echo "frontend_bucket=$(terraform output -raw s3_frontend_bucket)" >> $GITHUB_OUTPUT
+
+      - name: Build Frontend with Correct API URL
+        working-directory: ./frontend
+        run: |
+          echo "📝 Rebuilding frontend with API URL: ${{ steps.deploy_outputs.outputs.api_url }}"
+          rm -rf .next out node_modules
+          npm install
+          NEXT_PUBLIC_API_URL="${{ steps.deploy_outputs.outputs.api_url }}" npm run build
+          echo "📤 Deploying frontend to S3..."
+          aws s3 sync ./out "s3://${{ steps.deploy_outputs.outputs.frontend_bucket }}/" --delete
 
       - name: Invalidate CloudFront
         run: |
