@@ -38,25 +38,16 @@ API_URL=$(terraform output -raw api_gateway_url)
 FRONTEND_BUCKET=$(terraform output -raw s3_frontend_bucket)
 CUSTOM_URL=$(terraform output -raw custom_domain_url 2>/dev/null || true)
 
-# 3. Build + deploy frontend
-cd ../frontend
+# Note: Frontend build and deployment is handled by CI/CD workflow
+# to ensure NEXT_PUBLIC_API_URL is set correctly at build time
 
-echo "📝 Setting API URL for production..."
-# Clear Next.js cache to ensure fresh build
-rm -rf .next out
-
-npm install
-# Pass API URL directly to npm build
-NEXT_PUBLIC_API_URL="$API_URL" npm run build
-
-echo "📤 Deploying frontend to S3..."
-aws s3 sync ./out "s3://$FRONTEND_BUCKET/" --delete
 cd ..
 
-# 4. Final messages
-echo -e "\n✅ Deployment complete!"
+# 3. Final messages
+echo -e "\n✅ Backend deployment complete!"
 echo "🌐 CloudFront URL : $(terraform -chdir=terraform output -raw cloudfront_url)"
 if [ -n "$CUSTOM_URL" ]; then
   echo "🔗 Custom domain  : $CUSTOM_URL"
 fi
 echo "📡 API Gateway    : $API_URL"
+echo "⏳ Frontend deployment handled by CI/CD workflow..."
