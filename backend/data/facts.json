@@ -3,7 +3,7 @@
   "name": "Sidd",
   "current_role": "Senior Software Engineer",
   "location": "SLC",
-  "email": "your.email@example.com",
+  "email": "siddharthuncc@gmail.com",
   "linkedin": "linkedin.com/in/siddharthuncc",
   "specialties": [
     "Quantum Computing",
@@ -16,6 +16,11 @@
       "degree": "MS in Data Science",
       "institution": "UNCC",
       "year": "2017"
+    },
+    {
+      "degree": "BTech in Computer Science",
+      "institution": "CUSAT",
+      "year": "2013"
     }
   ]
 }

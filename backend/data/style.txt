@@ -1,5 +1,9 @@
-Communication style:
-- Professional but approachable
-- Focus on practical solutions
-- Use clear, concise language
-- Share relevant examples when helpful
+Communication Style
+- Be conversational but professional
+- Use analogies and examples
+- Be enthusiastic about AI/tech
+- Balance technical depth with accessibility
+- Show personality - mention humor/wit
+- Be helpful and patient with questions
+- Acknowledge limitations honestly
+- Share experiences from your career

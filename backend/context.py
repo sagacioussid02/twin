@@ -1,12 +1,89 @@
-from resources import linkedin, summary, facts, style
+from resources import (
+    linkedin, summary, facts, style, bio, achievements, 
+    work_experience, interests, communication_guide, skills,
+    extra_markdown_files, extra_json_files
+)
 from datetime import datetime
 
-
-full_name = facts["full_name"]
-name = facts["name"]
+full_name = facts.get("full_name", "Professional")
+name = facts.get("name", "Twin")
 
 
 def prompt():
+    # Build dynamic sections from loaded data
+    sections = []
+    
+    # Basic Information
+    sections.append(f"## Basic Information\n{facts}")
+    
+    # Summary
+    sections.append(f"## Summary\n{summary}")
+    
+    # LinkedIn Profile
+    sections.append(f"## LinkedIn Profile\n{linkedin}")
+    
+    # Biography
+    if bio:
+        sections.append(f"## Biography\n{bio}")
+    
+    # Skills
+    if skills:
+        tech_skills = skills.get("technical_skills", {})
+        soft_skills = skills.get("soft_skills", [])
+        languages = skills.get("languages", [])
+        
+        skills_text = "## Skills & Expertise\n"
+        if tech_skills:
+            if tech_skills.get("languages"):
+                skills_text += f"**Languages:** {', '.join(tech_skills.get('languages', []))}\n"
+            if tech_skills.get("ai_ml"):
+                skills_text += f"**AI/ML:** {', '.join(tech_skills.get('ai_ml', []))}\n"
+            if tech_skills.get("cloud"):
+                skills_text += f"**Cloud:** {', '.join(tech_skills.get('cloud', []))}\n"
+            if tech_skills.get("frameworks"):
+                skills_text += f"**Frameworks:** {', '.join(tech_skills.get('frameworks', []))}\n"
+        if soft_skills:
+            skills_text += f"**Soft Skills:** {', '.join(soft_skills)}\n"
+        if languages:
+            skills_text += f"**Languages:** {', '.join(languages)}\n"
+        sections.append(skills_text)
+    
+    # Work Experience
+    if work_experience:
+        sections.append(f"## Work Experience\n{work_experience}")
+    
+    # Achievements
+    if achievements:
+        sections.append(f"## Achievements\n{achievements}")
+    
+    # Interests
+    if interests:
+        sections.append(f"## Interests\n{interests}")
+    
+    # Communication Style
+    if communication_guide:
+        sections.append(f"## Communication Style\n{communication_guide}")
+    else:
+        sections.append(f"## Communication Style\n{style}")
+    
+    # Add any extra markdown files
+    for filename, content in extra_markdown_files.items():
+        if content:
+            # Convert filename to title case
+            title = filename.replace("_", " ").title()
+            sections.append(f"## {title}\n{content}")
+    
+    # Add any extra JSON files as formatted content
+    for filename, content in extra_json_files.items():
+        if content:
+            title = filename.replace("_", " ").title()
+            if isinstance(content, dict):
+                sections.append(f"## {title}\n{format_json_nicely(content)}")
+            else:
+                sections.append(f"## {title}\n{content}")
+    
+    full_context = "\n\n".join(sections)
+    
     return f"""
 # Your Role
 
@@ -17,18 +94,7 @@ you are described on the website as the Digital Twin of {name} and you should pr
 
 ## Important Context
 
-Here is some basic information about {name}:
-{facts}
-
-Here are summary notes from {name}:
-{summary}
-
-Here is the LinkedIn profile of {name}:
-{linkedin}
-
-Here are some notes from {name} about their communications style:
-{style}
-
+{full_context}
 
 For reference, here is the current date and time:
 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -56,3 +122,20 @@ There are 3 critical rules that you must follow:
 Please engage with the user.
 Avoid responding in a way that feels like a chatbot or AI assistant, and don't end every message with a question; channel a smart conversation with an engaging person, a true reflection of {name}.
 """
+
+
+def format_json_nicely(json_obj, indent=0):
+    """Format JSON object nicely for readability"""
+    if isinstance(json_obj, dict):
+        lines = []
+        for key, value in json_obj.items():
+            formatted_key = key.replace("_", " ").title()
+            if isinstance(value, list):
+                lines.append(f"{'  ' * indent}**{formatted_key}:** {', '.join(str(v) for v in value)}")
+            elif isinstance(value, dict):
+                lines.append(f"{'  ' * indent}**{formatted_key}:**")
+                lines.append(format_json_nicely(value, indent + 1))
+            else:
+                lines.append(f"{'  ' * indent}**{formatted_key}:** {value}")
+        return "\n".join(lines)
+    return str(json_obj)

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User } from 'lucide-react';
+import { Send, User } from 'lucide-react';
+import Image from 'next/image';
 
 interface Message {
     id: string;
@@ -9,6 +10,8 @@ interface Message {
     content: string;
     timestamp: Date;
 }
+
+const AVATAR_URL = 'https://i.pravatar.cc/150?img=12&u=sidd';
 
 export default function Twin() {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -92,21 +95,25 @@ export default function Twin() {
     return (
         <div className="flex flex-col h-full bg-gray-50 rounded-lg shadow-lg">
             {/* Header */}
-            <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-4 rounded-t-lg">
+            <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-t-lg">
                 <h2 className="text-xl font-semibold flex items-center gap-2">
-                    <Bot className="w-6 h-6" />
-                    AI Digital Twin
+                    <div className="w-6 h-6 rounded-full overflow-hidden bg-white">
+                        <img src={AVATAR_URL} alt="Sidd's Twin" className="w-full h-full object-cover" />
+                    </div>
+                    Talk to Sidd&apos;s Twin
                 </h2>
-                <p className="text-sm text-slate-300 mt-1">Your AI course companion</p>
+                <p className="text-sm text-purple-100 mt-1">✨ Intelligent conversations powered by AI ✨</p>
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                     <div className="text-center text-gray-500 mt-8">
-                        <Bot className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <p>Hello! I&apos;m your Digital Twin.</p>
-                        <p className="text-sm mt-2">Ask me anything about AI deployment!</p>
+                        <div className="w-12 h-12 mx-auto mb-3 rounded-full overflow-hidden bg-gray-200">
+                            <img src={AVATAR_URL} alt="Sidd's Twin" className="w-full h-full object-cover" />
+                        </div>
+                        <p className="font-semibold text-gray-700">👨‍💼 Meet Sidd&apos;s AI Twin</p>
+                        <p className="text-sm mt-2 text-gray-600">Your professional AI companion for tech, AI & innovation</p>
                     </div>
                 )}
 
@@ -119,8 +126,8 @@ export default function Twin() {
                     >
                         {message.role === 'assistant' && (
                             <div className="flex-shrink-0">
-                                <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
-                                    <Bot className="w-5 h-5 text-white" />
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-white border border-gray-200 flex items-center justify-center">
+                                    <img src={AVATAR_URL} alt="Sidd's Twin" className="w-full h-full object-cover" />
                                 </div>
                             </div>
                         )}
@@ -155,8 +162,8 @@ export default function Twin() {
                 {isLoading && (
                     <div className="flex gap-3 justify-start">
                         <div className="flex-shrink-0">
-                            <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
-                                <Bot className="w-5 h-5 text-white" />
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-white border border-gray-200 flex items-center justify-center">
+                                <img src={AVATAR_URL} alt="Sidd's Twin" className="w-full h-full object-cover" />
                             </div>
                         </div>
                         <div className="bg-white border border-gray-200 rounded-lg p-3">

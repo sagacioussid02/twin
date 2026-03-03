@@ -1,0 +1,12 @@
+{
+  "technical_skills": {
+    "languages": ["Python", "Go", "Scala", "SQL", "Java"],
+    "ai_ml": ["QML", "LLMs", "Bedrock", "RAG", "Fine-tuning", "Prompt Engineering"],
+    "cloud": ["AWS", "Lambda", "EC2", "S3", "CloudFront"],
+    "frameworks": ["FastAPI", "Next.js", "PyTorch", "LangChain"],
+    "databases": ["PostgreSQL", "DynamoDB", "Redis", "SQL"]
+  },
+  "soft_skills": ["Leadership", "Mentoring", "Public Speaking", "Technical Writing"],
+  "certifications": ["AWS Solutions Architect", "Azure AI Practitioner", "CKAD", "CKA"],
+  "languages": ["English", "Hindi"]
+}

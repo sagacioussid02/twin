@@ -223,6 +223,86 @@ async def get_conversation(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Cache for taglines to reduce API calls
+tagline_cache = {"taglines": None, "timestamp": None}
+TAGLINE_CACHE_TTL = 3600  # Cache for 1 hour
+
+@app.get("/taglines")
+async def get_taglines():
+    """Generate humorous and attractive taglines dynamically using AI (cached)"""
+    global tagline_cache
+    from datetime import datetime, timedelta
+    
+    # Check if cache is still valid
+    if (tagline_cache["taglines"] is not None and 
+        tagline_cache["timestamp"] is not None and
+        datetime.now() - tagline_cache["timestamp"] < timedelta(seconds=TAGLINE_CACHE_TTL)):
+        print("Returning cached taglines")
+        return {"taglines": tagline_cache["taglines"]}
+    
+    try:
+        print("Generating new taglines from AI...")
+        prompt_text = """Generate exactly 10 short, humorous, witty, and attractive taglines for an AI Digital Twin product. 
+        Each tagline should be catchy, fun, and appeal to tech-savvy users. They should relate to AI, digital clones, productivity, or self-improvement.
+        Keep each tagline to 2-5 words maximum.
+        Format: Return only a JSON array of strings, nothing else.
+        Example format: ["Coffee with this guy", "Resumes are old school", "Your digital brainpower unleashed"]"""
+        
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": prompt_text}]
+            }
+        ]
+        
+        response = bedrock_client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=messages,
+            inferenceConfig={
+                "maxTokens": 500,
+                "temperature": 0.9,
+                "topP": 0.95
+            }
+        )
+        
+        response_text = response["output"]["message"]["content"][0]["text"]
+        
+        # Extract JSON array from response
+        import re
+        json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        if json_match:
+            taglines = json.loads(json_match.group())
+            # Update cache
+            tagline_cache["taglines"] = taglines
+            tagline_cache["timestamp"] = datetime.now()
+            return {"taglines": taglines}
+        else:
+            # Fallback if JSON parsing fails
+            fallback = ["Talk to your AI twin", "Your digital self awaits", "AI collaboration unlocked"]
+            tagline_cache["taglines"] = fallback
+            tagline_cache["timestamp"] = datetime.now()
+            return {"taglines": fallback}
+            
+    except Exception as e:
+        print(f"Error generating taglines: {str(e)}")
+        # Return fallback taglines on error
+        fallback = [
+            "Coffee with this guy",
+            "Resumes are old school",
+            "Your digital brainpower unleashed",
+            "The future of collaboration is here",
+            "AI that gets you",
+            "Your second brain in action",
+            "Talk to your smarter self",
+            "Meet Sidd 2.0",
+            "Intelligence amplified",
+            "Your AI just leveled up"
+        ]
+        tagline_cache["taglines"] = fallback
+        tagline_cache["timestamp"] = datetime.now()
+        return {"taglines": fallback}
+
+
 if __name__ == "__main__":
     import uvicorn
 

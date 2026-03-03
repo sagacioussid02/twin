@@ -2,7 +2,7 @@ name: Deploy Digital Twin
 
 on:
   push:
-    branches: [main, github-actions]
+    branches: [main, github-actions, SiddData]
   workflow_dispatch:
     inputs:
       environment:
