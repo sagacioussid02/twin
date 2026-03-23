@@ -109,6 +109,7 @@ export default function CreatePage() {
       setForm(prev => ({ ...prev, [field]: e.target.value }));
 
   const handleLinkedInUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (parsing) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setParsing(true);
@@ -223,7 +224,7 @@ export default function CreatePage() {
                   <p className="text-xs text-gray-500 mb-3">
                     LinkedIn → Me → View Profile → More → Save to PDF
                   </p>
-                  <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleLinkedInUpload} className="hidden" id="linkedin-upload" />
+                  <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleLinkedInUpload} disabled={parsing} className="hidden" id="linkedin-upload" />
                   <label htmlFor="linkedin-upload" className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit ${
                     parsing ? 'bg-purple-200 text-purple-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'
                   }`}>

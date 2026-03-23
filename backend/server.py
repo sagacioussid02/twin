@@ -47,6 +47,8 @@ MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
 
 # Initialize S3 client if needed
 if USE_S3:
+    if not S3_BUCKET:
+        raise RuntimeError("USE_S3=true but S3_BUCKET environment variable is not set")
     s3_client = boto3.client("s3")
 
 
@@ -57,7 +59,7 @@ TWINS_DIR = "/tmp/twins" if _IN_LAMBDA else os.path.join(os.path.dirname(__file_
 TWINS_S3_PREFIX = "twins/"
 
 
-_TWIN_ID_RE = re.compile(r'^[a-f0-9]{8}$')
+_TWIN_ID_RE = re.compile(r'^[a-f0-9]{32}$')
 
 # Expected keys for the personality model returned by /create-twin
 _PERSONALITY_MODEL_KEYS = {
@@ -604,7 +606,7 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
     except ClientError as e:
         raise HTTPException(status_code=500, detail=f"Bedrock error: {str(e)}")
 
-    twin_id = str(uuid.uuid4())[:8]
+    twin_id = uuid.uuid4().hex  # 32 hex chars (128-bit) — no truncation, no collision risk
 
     # Only persist what's needed at chat time — no email or raw form fields (PII).
     # Embed the context fields the prompt builder needs directly in the personality model.
