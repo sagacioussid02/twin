@@ -1,0 +1,78 @@
+name: Security Scan
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-security:
+    name: Python — Bandit + pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install security tools
+        run: pip install bandit pip-audit
+
+      - name: Bandit SAST scan
+        run: |
+          bandit -r backend/ \
+            --exclude backend/__pycache__,backend/.venv,backend/lambda-package \
+            -f json -o bandit-report.json || true
+          bandit -r backend/ \
+            --exclude backend/__pycache__,backend/.venv,backend/lambda-package \
+            -ll  # print high/medium findings to console
+
+      - name: pip-audit dependency scan
+        working-directory: backend
+        run: |
+          uv export --no-dev --format requirements-txt > /tmp/requirements.txt
+          pip-audit -r /tmp/requirements.txt --format json -o ../pip-audit-report.json || true
+          pip-audit -r /tmp/requirements.txt  # print to console
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: python-security-reports
+          path: |
+            bandit-report.json
+            pip-audit-report.json
+
+  node-security:
+    name: Node — npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit
+        working-directory: frontend
+        run: |
+          npm audit --audit-level=high --json > ../npm-audit-report.json || true
+          npm audit --audit-level=high
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: node-security-report
+          path: npm-audit-report.json

@@ -1,0 +1,117 @@
+name: PR Comment Responder
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  respond:
+    name: Answer PR comment with Claude
+    # Only run on PR comments triggered by a trusted user issuing /claude <instruction>.
+    # Prevents external contributors from spending API quota or extracting diff content.
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/claude') &&
+      contains(fromJson('["sagacioussid02"]'), github.event.comment.user.login)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          gh pr diff "$PR_NUMBER" > /tmp/pr.diff
+          # Truncate if too large
+          head -c 12000 /tmp/pr.diff > /tmp/pr-truncated.diff
+          echo "diff_file=/tmp/pr-truncated.diff" >> $GITHUB_OUTPUT
+
+      - name: Get PR metadata
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          gh pr view "$PR_NUMBER" --json title,body,headRefName > /tmp/pr-meta.json
+          echo "pr_title=$(jq -r .title /tmp/pr-meta.json)" >> $GITHUB_OUTPUT
+          echo "pr_branch=$(jq -r .headRefName /tmp/pr-meta.json)" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Anthropic SDK
+        run: pip install anthropic
+
+      - name: Generate response with Claude
+        id: claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_TITLE: ${{ steps.meta.outputs.pr_title }}
+          PR_BRANCH: ${{ steps.meta.outputs.pr_branch }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          python3 << 'PYTHON'
+          import anthropic, json, os
+
+          # Strip the /claude trigger prefix before sending to the model
+          comment = os.environ["COMMENT_BODY"].removeprefix("/claude").strip()
+          pr_title = os.environ["PR_TITLE"]
+          pr_branch = os.environ["PR_BRANCH"]
+          commenter = os.environ["COMMENTER"]
+
+          with open("/tmp/pr-truncated.diff") as f:
+              diff = f.read()
+
+          client = anthropic.Anthropic()
+
+          message = client.messages.create(
+              model="claude-sonnet-4-6",
+              max_tokens=1024,
+              messages=[{
+                  "role": "user",
+                  "content": f"""You are a helpful code reviewer on a GitHub PR. Respond to the comment below.
+
+          PR: {pr_title} (branch: {pr_branch})
+          Commenter: @{commenter}
+
+          Diff (truncated):
+          ```diff
+          {diff[:8000]}
+          ```
+
+          Comment to respond to:
+          > {comment}
+
+          Respond helpfully and concisely. If it's a question about the code, answer it using the diff as context.
+          If it's a suggestion, acknowledge it and explain whether/how it would be addressed.
+          Keep your response under 300 words. Use markdown. End with: "\\n\\n---\\n🤖 AI response via Claude"
+          """
+              }]
+          )
+
+          response = message.content[0].text
+
+          # Write to file to handle multiline safely
+          with open("/tmp/claude-response.txt", "w") as f:
+              f.write(response)
+
+          print("Response generated successfully")
+          PYTHON
+
+      - name: Post response as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body-file /tmp/claude-response.txt

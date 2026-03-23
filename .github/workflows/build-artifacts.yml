@@ -1,0 +1,88 @@
+name: Build Artifacts
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-backend:
+    name: Build Lambda package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build Lambda zip
+        working-directory: backend
+        run: |
+          mkdir -p lambda-package
+          uv export --no-dev --format requirements-txt | \
+            pip install -r /dev/stdin -t lambda-package/ --quiet
+          cp *.py lambda-package/
+          cp -r data lambda-package/
+          cd lambda-package && zip -r ../lambda-deployment.zip . -x "*.pyc" -x "*/__pycache__/*"
+          echo "Lambda zip size: $(du -sh ../lambda-deployment.zip | cut -f1)"
+
+      - name: Upload Lambda artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: lambda-deployment-${{ github.sha }}
+          path: backend/lambda-deployment.zip
+          retention-days: 7
+
+  build-frontend:
+    name: Build Next.js static export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          : "${NEXT_PUBLIC_API_URL:?Repository variable NEXT_PUBLIC_API_URL is not set. Add it under Settings > Variables > Actions.}"
+          npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-build-${{ github.sha }}
+          path: frontend/out/
+          retention-days: 7
+
+  summarize:
+    name: Build summary
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend]
+    steps:
+      - name: Summary
+        run: |
+          echo "### Build Artifacts ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | SHA |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`lambda-deployment.zip\` | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`frontend/out/\` | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts retained for 7 days. Download from the Actions run page." >> $GITHUB_STEP_SUMMARY
