@@ -51,7 +51,10 @@ if USE_S3:
 
 
 # Request/Response models
-TWINS_DIR = os.path.join(os.path.dirname(__file__), "twins")
+# Local twins dir: use /tmp/twins in Lambda (package dir is read-only), local path otherwise
+_IN_LAMBDA = bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+TWINS_DIR = "/tmp/twins" if _IN_LAMBDA else os.path.join(os.path.dirname(__file__), "twins")
+TWINS_S3_PREFIX = "twins/"
 
 
 _TWIN_ID_RE = re.compile(r'^[a-f0-9]{8}$')
@@ -124,6 +127,16 @@ def load_twin(twin_id: str) -> Optional[dict]:
     """Load a saved twin's data by ID. Validates ID format and confines path to TWINS_DIR."""
     if not _TWIN_ID_RE.match(twin_id):
         raise HTTPException(status_code=400, detail="Invalid twin ID format")
+
+    if USE_S3:
+        try:
+            response = s3_client.get_object(Bucket=S3_BUCKET, Key=f"{TWINS_S3_PREFIX}{twin_id}.json")
+            return json.loads(response["Body"].read().decode("utf-8"))
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                return None
+            raise
+
     path = os.path.realpath(os.path.join(TWINS_DIR, f"{twin_id}.json"))
     if not path.startswith(os.path.realpath(TWINS_DIR) + os.sep):
         raise HTTPException(status_code=400, detail="Invalid twin ID")
@@ -612,19 +625,25 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
         "chat_url": f"/twin?id={twin_id}",
     }
 
-    os.makedirs(TWINS_DIR, exist_ok=True)
-
-    # Cap stored twins to avoid unbounded disk growth (default 1000, override via MAX_TWINS_FILES)
-    try:
-        max_twins = int(os.getenv("MAX_TWINS_FILES", "1000"))
-    except ValueError:
-        max_twins = 1000
-    existing = sorted(Path(TWINS_DIR).glob("*.json"), key=lambda p: p.stat().st_mtime)
-    for old_file in existing[: max(0, len(existing) - max_twins + 1)]:
-        old_file.unlink(missing_ok=True)
-
-    with open(os.path.join(TWINS_DIR, f"{twin_id}.json"), "w") as f:
-        json.dump(twin_data, f, indent=2)
+    if USE_S3:
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=f"{TWINS_S3_PREFIX}{twin_id}.json",
+            Body=json.dumps(twin_data, indent=2),
+            ContentType="application/json",
+        )
+    else:
+        # Local / Lambda /tmp fallback — not durable across Lambda cold starts
+        os.makedirs(TWINS_DIR, exist_ok=True)
+        try:
+            max_twins = int(os.getenv("MAX_TWINS_FILES", "1000"))
+        except ValueError:
+            max_twins = 1000
+        existing = sorted(Path(TWINS_DIR).glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for old_file in existing[: max(0, len(existing) - max_twins + 1)]:
+            old_file.unlink(missing_ok=True)
+        with open(os.path.join(TWINS_DIR, f"{twin_id}.json"), "w") as f:
+            json.dump(twin_data, f, indent=2)
 
     return {"twin_id": twin_id, "personality_model": personality_model}
 

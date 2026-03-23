@@ -362,9 +362,7 @@ export default function CreatePage() {
                       Talk to your twin →
                     </a>
                   )}
-                  {form.email && (
-                    <p className="text-gray-400 text-xs mt-2">We&apos;ll also send the link to {form.email}</p>
-                  )}
+                  <p className="text-gray-400 text-xs mt-2">Save this link — it&apos;s the only way back to your twin.</p>
                 </div>
 
                 {twinResult && (
