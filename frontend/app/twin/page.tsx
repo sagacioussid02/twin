@@ -18,6 +18,7 @@ interface TwinProfile {
   title: string;
   personality_summary: string;
   core_values: string[];
+  archetype_display_name?: string;
 }
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -136,6 +137,11 @@ function TwinChat() {
               <div className="flex-1 min-w-0">
                 <h1 className="text-2xl font-bold text-gray-800">{profile.name}&apos;s AI Twin</h1>
                 {profile.title && <p className="text-sm text-gray-500 mt-0.5">{profile.title}</p>}
+                {profile.archetype_display_name && (
+                  <span className="inline-block mt-1 text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full">
+                    <span aria-hidden="true">✨</span> {profile.archetype_display_name} personality
+                  </span>
+                )}
                 {profile.personality_summary && (
                   <p className="text-sm text-gray-600 mt-2 leading-relaxed">{profile.personality_summary}</p>
                 )}

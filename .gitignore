@@ -56,6 +56,10 @@ lambda-package/
 # Memory storage (contains conversation history)
 memory/
 
+# Twin data (contains personal details — keep only example.json)
+backend/twins/*.json
+!backend/twins/example.json
+
 # Environment files
 .env
 .env.*
@@ -81,4 +85,6 @@ venv/
 Thumbs.db
 
 # AWS
-.aws/
+.aws/medium.md
+
+medium.md

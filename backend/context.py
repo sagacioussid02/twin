@@ -9,8 +9,19 @@ from typing import Optional
 full_name = facts.get("full_name", "Professional")
 name = facts.get("name", "Twin")
 
+_RESPONSE_STYLES = {
+    "concise": "Keep every response to 1-3 sentences. Be direct. One idea per reply.",
+    "balanced": "Aim for 3-6 sentences. Enough to answer well, short enough to stay conversational.",
+    "detailed": "Feel free to elaborate fully — explain reasoning, give context and examples — but stay conversational, not documentary.",
+}
 
-def prompt(personality_model: Optional[dict] = None, twin_name: Optional[str] = None, twin_title: Optional[str] = None):
+
+def prompt(
+    personality_model: Optional[dict] = None,
+    twin_name: Optional[str] = None,
+    twin_title: Optional[str] = None,
+    response_style: str = "balanced",
+):
     """
     Build the system prompt.
     - With no args: uses Sidd's data files (default twin)
@@ -20,10 +31,16 @@ def prompt(personality_model: Optional[dict] = None, twin_name: Optional[str] = 
     display_name = twin_name or full_name
     short_name = twin_name.split()[0] if twin_name else name
 
+    # If personality_model is provided, read responseStyle from its _context
+    if personality_model:
+        response_style = personality_model.get("_context", {}).get("responseStyle", response_style)
+
+    response_style_instruction = _RESPONSE_STYLES.get(response_style, _RESPONSE_STYLES["balanced"])
+
     # ── Factual context ──────────────────────────────────────────────────────
     if personality_model:
         # User-created twin: build context from personality model + raw fields
-        factual_context = _build_from_personality_model(personality_model, display_name, twin_title or "")
+        factual_context = _build_from_personality_model(personality_model, twin_title or "")
     else:
         # Sidd's twin: build from data files
         factual_context = _build_from_data_files()
@@ -43,6 +60,10 @@ You are live on {display_name}'s personal website. A user is chatting with you. 
 
 {decision_section}
 
+## Response Style
+
+{response_style_instruction}
+
 ## Critical Rules
 
 1. Never invent facts not in your context. If you don't know something, say so in {short_name}'s voice.
@@ -50,6 +71,7 @@ You are live on {display_name}'s personal website. A user is chatting with you. 
 3. Keep the conversation professional. Light personal topics are fine; steer back to substance.
 4. When answering "what would {short_name} do?" questions — reason from the decision framework above, show your work briefly, then give a clear answer. Don't hedge endlessly.
 5. Sound like a person, not a chatbot. No bullet-point responses to casual questions. No closing with "Is there anything else I can help you with?"
+6. In your replies to the user, never use markdown formatting — no **bold**, no bullet points, no headers. Write in plain conversational prose.
 
 ## Today's date
 {datetime.now().strftime("%Y-%m-%d")}
@@ -116,27 +138,30 @@ def _build_decision_section(personality_model: Optional[dict], display_name: str
     return "\n".join(lines)
 
 
-def _build_from_personality_model(personality_model: dict, display_name: str, title: str) -> str:  # noqa: ARG001
+def _build_from_personality_model(personality_model: dict, title: str) -> str:
     raw = personality_model.get("_context", {})
     lines = []
 
     if title:
-        lines.append(f"**Current Role:** {title}\n")
+        lines.append(f"Current Role: {title}\n")
 
     if raw.get("bio"):
-        lines.append(f"**Bio:** {raw['bio']}\n")
+        lines.append(f"Bio: {raw['bio']}\n")
 
     if raw.get("skills"):
-        lines.append(f"**Skills:** {raw['skills']}\n")
+        lines.append(f"Skills: {raw['skills']}\n")
 
     if raw.get("experience"):
-        lines.append(f"**Experience:**\n{raw['experience']}\n")
+        lines.append(f"Experience:\n{raw['experience']}\n")
 
     if raw.get("achievements"):
-        lines.append(f"**Achievements:**\n{raw['achievements']}\n")
+        lines.append(f"Achievements:\n{raw['achievements']}\n")
 
     if raw.get("communicationStyle"):
-        lines.append(f"**Communication Style:** {raw['communicationStyle']}\n")
+        lines.append(f"Communication Style: {raw['communicationStyle']}\n")
+
+    if raw.get("verbalQuirks"):
+        lines.append(f"Verbal quirks (use naturally in responses):\n{raw['verbalQuirks']}\n")
 
     return "\n".join(lines)
 

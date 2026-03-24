@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import type { ReactNode, ChangeEvent } from 'react';
-import { ArrowLeft, ArrowRight, Check, Upload, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import type { ChangeEvent } from 'react';
+import { ArrowLeft, ArrowRight, Check, Upload, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 
 interface FormData {
   // Step 1 — Basic Info
@@ -23,7 +23,35 @@ interface FormData {
   communicationStyle: string;
   writingSamples: string;
   blindSpots: string;
+  // Personality
+  archetype_id: string;
+  responseStyle: 'concise' | 'balanced' | 'detailed';
+  verbalQuirks: string;
 }
+
+interface Archetype {
+  id: string;
+  display_name: string;
+}
+
+const PRESET_QUIRKS = [
+  "Always starts with 'So here's the thing...'",
+  "Says 'at the end of the day' a lot",
+  "Asks 'what's the worst case?' before agreeing",
+  "Thinks out loud before landing on an answer",
+  "Short sentences. No fluff.",
+  "Uses analogies to explain technical things",
+  "Ends with 'does that make sense?'",
+  "Brings everything back to first principles",
+  "Says 'I don't know' openly when uncertain",
+  "Prefers bullet points over paragraphs",
+  "Steelmans the opposing view before arguing",
+  "Uses 'to be fair' as a filler",
+  "Never uses exclamation marks",
+  "Starts questions with 'Curious —'",
+  "Challenges assumptions before answering",
+  "Uses 'the thing is...' a lot",
+];
 
 const STEPS = [
   { id: 1, label: 'Basic Info' },
@@ -69,24 +97,23 @@ const empty: FormData = {
   skills: '', experience: '', achievements: '',
   coreValues: '', decisionStyle: '', riskTolerance: '', pastDecisions: '',
   communicationStyle: '', writingSamples: '', blindSpots: '',
+  archetype_id: '',
+  responseStyle: 'balanced',
+  verbalQuirks: '',
 };
 
-function Field({ label, required, hint, children }: {
-  label: string; required?: boolean; hint?: string; children: ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        <span>{label} {required && <span className="text-purple-500">*</span>}</span>
-        {children}
-      </label>
-      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
-    </div>
-  );
-}
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const inputClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800";
 const textareaClass = `${inputClass} resize-none`;
+
+interface PersonalityModel {
+  personality_summary?: string;
+  decision_framework?: string;
+  core_values?: string[];
+  decision_heuristics?: string[];
+  [key: string]: unknown;
+}
 
 export default function CreatePage() {
   const [step, setStep] = useState(1);
@@ -95,33 +122,47 @@ export default function CreatePage() {
   const [parseError, setParseError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  interface PersonalityModel {
-    personality_summary?: string;
-    decision_framework?: string;
-    core_values?: string[];
-    decision_heuristics?: string[];
-    [key: string]: unknown;
-  }
   const [twinResult, setTwinResult] = useState<{ twin_id: string; personality_model: PersonalityModel } | null>(null);
+  const [archetypes, setArchetypes] = useState<Archetype[]>([]);
+  const [detectedArchetype, setDetectedArchetype] = useState<string | null>(null);
+  const [archetypeAutoDetected, setArchetypeAutoDetected] = useState(false);
+  const [showArchetypeDropdown, setShowArchetypeDropdown] = useState(false);
+  const [selectedQuirks, setSelectedQuirks] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleQuirk = (quirk: string) =>
+    setSelectedQuirks(prev => {
+      const next = new Set(prev);
+      next.has(quirk) ? next.delete(quirk) : next.add(quirk);
+      return next;
+    });
+
+  useEffect(() => {
+    fetch(`${API}/archetypes`)
+      .then(r => r.json())
+      .then(d => setArchetypes(d.archetypes || []))
+      .catch(() => {});
+  }, []);
 
   const set = (field: keyof FormData) =>
     (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [field]: e.target.value }));
 
   const handleLinkedInUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (parsing) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setParsing(true);
     setParseError('');
+    setDetectedArchetype(null);
+    setArchetypeAutoDetected(false);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/parse-linkedin`, {
-        method: 'POST', body: fd,
-      });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.detail || 'Failed to parse PDF'); }
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API}/parse-linkedin`, { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to parse PDF');
+      }
       const data = await res.json();
       setForm(prev => ({
         ...prev,
@@ -132,7 +173,15 @@ export default function CreatePage() {
         experience: data.experience || prev.experience,
         achievements: data.achievements || prev.achievements,
         communicationStyle: data.communicationStyle || prev.communicationStyle,
+        archetype_id: 'archetype_id' in data ? (data.archetype_id ?? '') : prev.archetype_id,
       }));
+      if (data.archetype_id) {
+        setDetectedArchetype(data.archetype_display_name);
+        setArchetypeAutoDetected(true);
+      } else if ('archetype_id' in data) {
+        setDetectedArchetype(null);
+        setArchetypeAutoDetected(false);
+      }
     } catch (err: unknown) {
       setParseError(err instanceof Error ? err.message : 'Failed to parse PDF');
     } finally {
@@ -153,10 +202,31 @@ export default function CreatePage() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/create-twin`, {
+      const res = await fetch(`${API}/create-twin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          name: form.name,
+          title: form.title,
+          bio: form.bio,
+          email: form.email,
+          skills: form.skills,
+          experience: form.experience,
+          achievements: form.achievements,
+          coreValues: form.coreValues,
+          decisionStyle: form.decisionStyle,
+          riskTolerance: form.riskTolerance,
+          pastDecisions: form.pastDecisions,
+          communicationStyle: form.communicationStyle,
+          writingSamples: form.writingSamples,
+          blindSpots: form.blindSpots,
+          archetype_id: form.archetype_id || null,
+          responseStyle: form.responseStyle,
+          verbalQuirks: [
+            ...[...selectedQuirks],
+            ...(form.verbalQuirks.trim() ? [form.verbalQuirks.trim()] : []),
+          ].join('\n'),
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -171,6 +241,8 @@ export default function CreatePage() {
       setSubmitting(false);
     }
   };
+
+  const selectedArchetypeName = archetypes.find(a => a.id === form.archetype_id)?.display_name;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
@@ -220,32 +292,130 @@ export default function CreatePage() {
                   <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[0] }))} className="text-xs text-purple-500 hover:text-purple-700 underline">Fill sample</button>
                 </div>
 
+                {/* LinkedIn PDF upload */}
                 <div className="border-2 border-dashed border-purple-200 rounded-lg p-4 bg-purple-50">
                   <p className="text-sm font-medium text-purple-700 mb-1">Have a LinkedIn PDF? Auto-fill from it</p>
                   <p className="text-xs text-gray-500 mb-3">
                     LinkedIn → Me → View Profile → More → Save to PDF
                   </p>
-                  <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleLinkedInUpload} disabled={parsing} className="hidden" id="linkedin-upload" />
-                  <label htmlFor="linkedin-upload" className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit ${
-                    parsing ? 'bg-purple-200 text-purple-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'
-                  }`}>
-                    {parsing ? <><Loader2 className="w-4 h-4 animate-spin" /> Parsing...</> : <><Upload className="w-4 h-4" /> Upload LinkedIn PDF</>}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleLinkedInUpload}
+                    disabled={parsing}
+                    className="hidden"
+                    id="linkedin-upload"
+                  />
+                  <label
+                    htmlFor="linkedin-upload"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit ${
+                      parsing ? 'bg-purple-200 text-purple-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'
+                    }`}
+                  >
+                    {parsing ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Parsing...</>
+                    ) : (
+                      <><Upload className="w-4 h-4" /> Upload LinkedIn PDF</>
+                    )}
                   </label>
                   {parseError && <p className="text-xs text-red-500 mt-2">{parseError}</p>}
+
+                  {/* Archetype detection result */}
+                  {detectedArchetype && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                        <Sparkles className="w-3 h-3" />
+                        {archetypeAutoDetected ? 'Detected' : 'Archetype'}: {detectedArchetype}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowArchetypeDropdown(v => !v)}
+                        className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                      >
+                        change
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <Field label="Full Name" required>
-                  <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Jane Smith" className={inputClass} />
-                </Field>
-                <Field label="Professional Title" required>
-                  <input type="text" value={form.title} onChange={set('title')} placeholder="e.g. Senior Engineer at Acme" className={inputClass} />
-                </Field>
-                <Field label="Short Bio" required hint="Who you are, what you do, what drives you.">
-                  <textarea value={form.bio} onChange={set('bio')} rows={4} placeholder="I'm a..." className={textareaClass} />
-                </Field>
-                <Field label="Email" hint="Optional — email delivery not yet implemented.">
-                  <input type="email" value={form.email} onChange={set('email')} placeholder="you@example.com" className={inputClass} />
-                </Field>
+                {/* Archetype selector — shown when: no auto-detect, or user clicked change */}
+                {(showArchetypeDropdown || (!detectedArchetype && archetypes.length > 0)) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Role Archetype <span className="text-gray-400 font-normal">(optional — shapes twin personality)</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.archetype_id}
+                        onChange={e => {
+                          set('archetype_id')(e);
+                          const chosen = archetypes.find(a => a.id === e.target.value);
+                          setDetectedArchetype(chosen?.display_name || null);
+                          setArchetypeAutoDetected(false);
+                          setShowArchetypeDropdown(false);
+                        }}
+                        className="w-full appearance-none px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 bg-white pr-10"
+                      >
+                        <option value="">Select a role archetype...</option>
+                        {archetypes.map(a => (
+                          <option key={a.id} value={a.id}>{a.display_name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                    {selectedArchetypeName && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        The {selectedArchetypeName} archetype will shape your twin&apos;s personality and communication style.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="field-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                  <input
+                    id="field-name"
+                    type="text"
+                    value={form.name}
+                    onChange={set('name')}
+                    placeholder="e.g. Jane Smith"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="field-title" className="block text-sm font-medium text-gray-700 mb-1">Professional Title *</label>
+                  <input
+                    id="field-title"
+                    type="text"
+                    value={form.title}
+                    onChange={set('title')}
+                    placeholder="e.g. Senior Software Engineer at Acme"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="field-bio" className="block text-sm font-medium text-gray-700 mb-1">Short Bio *</label>
+                  <textarea
+                    id="field-bio"
+                    value={form.bio}
+                    onChange={set('bio')}
+                    rows={4}
+                    placeholder="A few sentences about who you are, what you do, and what drives you..."
+                    className={textareaClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="field-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+                  <input
+                    id="field-email"
+                    type="email"
+                    value={form.email}
+                    onChange={set('email')}
+                    placeholder="you@example.com"
+                    className={inputClass}
+                  />
+                </div>
               </div>
             )}
 
@@ -256,21 +426,39 @@ export default function CreatePage() {
                   <h2 className="text-xl font-semibold text-gray-800">Skills &amp; Experience</h2>
                   <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[1] }))} className="text-xs text-purple-500 hover:text-purple-700 underline">Fill sample</button>
                 </div>
-                <Field label="Key Skills" required hint="The more specific, the better your twin's domain knowledge.">
-                  <textarea value={form.skills} onChange={set('skills')} rows={3}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Key Skills *</label>
+                  <p className="text-xs text-gray-400 mb-1">The more specific, the better your twin&apos;s domain knowledge.</p>
+                  <textarea
+                    value={form.skills}
+                    onChange={set('skills')}
+                    rows={3}
                     placeholder="e.g. Python, System Design, Product Strategy, ML infrastructure..."
-                    className={textareaClass} />
-                </Field>
-                <Field label="Work Experience" required hint="Roles you've held and what you actually did there.">
-                  <textarea value={form.experience} onChange={set('experience')} rows={6}
+                    className={textareaClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Work Experience *</label>
+                  <p className="text-xs text-gray-400 mb-1">Roles you&apos;ve held and what you actually did there.</p>
+                  <textarea
+                    value={form.experience}
+                    onChange={set('experience')}
+                    rows={6}
                     placeholder={"- Acme (2021–now): Led backend team, scaled API to 10M req/day\n- Startup X (2018–21): Built ML pipeline from scratch, hired first 5 engineers"}
-                    className={textareaClass} />
-                </Field>
-                <Field label="Notable Achievements" hint="Things you're proud of — shipped, built, won, or learned.">
-                  <textarea value={form.achievements} onChange={set('achievements')} rows={3}
+                    className={textareaClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notable Achievements</label>
+                  <p className="text-xs text-gray-400 mb-1">Things you&apos;re proud of — shipped, built, won, or learned.</p>
+                  <textarea
+                    value={form.achievements}
+                    onChange={set('achievements')}
+                    rows={3}
                     placeholder="e.g. Published at NeurIPS, grew team from 3→20, open source project with 2k stars..."
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
               </div>
             )}
 
@@ -285,35 +473,51 @@ export default function CreatePage() {
                   <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[2] }))} className="text-xs text-purple-500 hover:text-purple-700 underline shrink-0 ml-4">Fill sample</button>
                 </div>
 
-                <Field label="Core Values" required hint="What principles guide your decisions? List 3–6 values and briefly explain each.">
-                  <textarea value={form.coreValues} onChange={set('coreValues')} rows={5}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Core Values *</label>
+                  <p className="text-xs text-gray-400 mb-1">What principles guide your decisions? List 3–6 values and briefly explain each.</p>
+                  <textarea
+                    value={form.coreValues}
+                    onChange={set('coreValues')}
+                    rows={5}
                     placeholder={"e.g.\n- Speed over perfection: ship fast, iterate\n- People first: I'll take a pay cut to work with great people\n- Ownership: I'd rather ask forgiveness than permission"}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
 
-                <Field label="How you make decisions" required hint="Walk us through your actual decision-making process.">
-                  <textarea value={form.decisionStyle} onChange={set('decisionStyle')} rows={4}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">How you make decisions *</label>
+                  <p className="text-xs text-gray-400 mb-1">Walk us through your actual decision-making process.</p>
+                  <textarea
+                    value={form.decisionStyle}
+                    onChange={set('decisionStyle')}
+                    rows={4}
                     placeholder={"e.g. I first identify what's reversible vs irreversible. For reversible decisions I move fast. For irreversible ones I sleep on it, write out pros/cons, and talk to one trusted person. I tend to be contrarian and distrust consensus..."}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
 
-                <Field label="Risk tolerance">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Risk tolerance</label>
                   <select value={form.riskTolerance} onChange={set('riskTolerance')} className={inputClass}>
                     <option value="">Select one...</option>
                     <option value="low">Low — I prefer certainty and proven paths</option>
                     <option value="medium">Medium — calculated risks with clear upside</option>
-                    <option value="high">High — I'd bet big if I believe in something</option>
+                    <option value="high">High — I&apos;d bet big if I believe in something</option>
                   </select>
-                </Field>
+                </div>
 
-                <Field
-                  label="A hard decision you've made"
-                  hint="Describe 1–2 real choices — what the situation was, what you chose, and why. This teaches your twin your actual judgment."
-                >
-                  <textarea value={form.pastDecisions} onChange={set('pastDecisions')} rows={5}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">A hard decision you&apos;ve made</label>
+                  <p className="text-xs text-gray-400 mb-1">Describe 1–2 real choices — what the situation was, what you chose, and why. This teaches your twin your actual judgment.</p>
+                  <textarea
+                    value={form.pastDecisions}
+                    onChange={set('pastDecisions')}
+                    rows={5}
                     placeholder={"e.g. In 2022 I turned down a $50k raise to join a 5-person startup. My reasoning: the equity upside was larger but more importantly I was stagnating and needed the forcing function of building from zero again. Regrets: none so far..."}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
               </div>
             )}
 
@@ -328,23 +532,105 @@ export default function CreatePage() {
                   <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[3] }))} className="text-xs text-purple-500 hover:text-purple-700 underline shrink-0 ml-4">Fill sample</button>
                 </div>
 
-                <Field label="Communication style" required hint="How do you actually talk and write? Be specific.">
-                  <textarea value={form.communicationStyle} onChange={set('communicationStyle')} rows={4}
+                {/* Response style selector */}
+                <fieldset>
+                  <legend className="block text-sm font-medium text-gray-700 mb-2">Response length</legend>
+                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Response length">
+                    {([
+                      { value: 'concise', label: 'Concise', desc: '1–3 sentences' },
+                      { value: 'balanced', label: 'Balanced', desc: '3–6 sentences' },
+                      { value: 'detailed', label: 'Detailed', desc: 'Full explanation' },
+                    ] as const).map(opt => (
+                      <label
+                        key={opt.value}
+                        className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
+                          form.responseStyle === opt.value
+                            ? 'bg-purple-600 border-purple-600 text-white'
+                            : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="responseStyle"
+                          value={opt.value}
+                          checked={form.responseStyle === opt.value}
+                          onChange={() => setForm(prev => ({ ...prev, responseStyle: opt.value }))}
+                          className="sr-only"
+                        />
+                        <div className="font-medium text-sm">{opt.label}</div>
+                        <div className={`text-xs mt-0.5 ${form.responseStyle === opt.value ? 'text-purple-200' : 'text-gray-400'}`}>{opt.desc}</div>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Communication style *</label>
+                  <p className="text-xs text-gray-400 mb-1">How do you actually talk and write? Be specific.</p>
+                  <textarea
+                    value={form.communicationStyle}
+                    onChange={set('communicationStyle')}
+                    rows={4}
                     placeholder={"e.g. Direct, sometimes blunt. I use short sentences. I love analogies to explain complex things. I swear occasionally in casual settings. I ask a lot of 'why' questions. I hate small talk but will geek out for hours on a problem..."}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
 
-                <Field label="Writing samples or links" hint="Paste URLs to your blog, tweets, LinkedIn posts, or essays — anything that captures your voice.">
-                  <textarea value={form.writingSamples} onChange={set('writingSamples')} rows={3}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Writing samples or links</label>
+                  <p className="text-xs text-gray-400 mb-1">Paste URLs to your blog, tweets, LinkedIn posts, or essays — anything that captures your voice.</p>
+                  <textarea
+                    value={form.writingSamples}
+                    onChange={set('writingSamples')}
+                    rows={3}
                     placeholder={"e.g.\nhttps://yourblog.com/post-about-ai\nhttps://x.com/you/status/...\nor paste a paragraph of your own writing here..."}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
 
-                <Field label="Blind spots &amp; biases" hint="What are you bad at? What biases do you know you have? Honesty here makes your twin more accurate.">
-                  <textarea value={form.blindSpots} onChange={set('blindSpots')} rows={4}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Blind spots &amp; biases</label>
+                  <p className="text-xs text-gray-400 mb-1">What are you bad at? What biases do you know you have? Honesty here makes your twin more accurate.</p>
+                  <textarea
+                    value={form.blindSpots}
+                    onChange={set('blindSpots')}
+                    rows={4}
                     placeholder={"e.g. I tend to over-index on technical elegance and under-weight business reality. I'm impatient with slow decision-makers. I can be overly optimistic about timelines. I sometimes dismiss ideas from non-technical people too quickly..."}
-                    className={textareaClass} />
-                </Field>
+                    className={textareaClass}
+                  />
+                </div>
+
+                {/* Verbal quirks */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Verbal quirks <span className="text-gray-400 font-normal">(optional — select any that fit)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {PRESET_QUIRKS.map(quirk => (
+                      <button
+                        key={quirk}
+                        type="button"
+                        aria-pressed={selectedQuirks.has(quirk)}
+                        onClick={() => toggleQuirk(quirk)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors text-left ${
+                          selectedQuirks.has(quirk)
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400 hover:text-purple-600'
+                        }`}
+                      >
+                        {quirk}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={form.verbalQuirks}
+                    onChange={set('verbalQuirks')}
+                    rows={2}
+                    placeholder="Anything else specific to add..."
+                    className={`${textareaClass} text-sm`}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">The human fingerprint — small habits that make this person sound like themselves.</p>
+                </div>
               </div>
             )}
 
@@ -357,14 +643,24 @@ export default function CreatePage() {
                   </div>
                   <h2 className="text-2xl font-semibold text-gray-800 mb-1">Your twin is ready!</h2>
                   {twinResult && (
-                    <a
-                      href={`/twin?id=${twinResult.twin_id}`}
-                      className="mt-2 inline-flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
-                    >
-                      Talk to your twin →
-                    </a>
+                    <>
+                      {form.archetype_id && selectedArchetypeName && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium mb-3">
+                          <Sparkles className="w-3 h-3" />
+                          {selectedArchetypeName} personality
+                        </span>
+                      )}
+                      <div className="mt-2">
+                        <a
+                          href={`/twin?id=${twinResult.twin_id}`}
+                          className="inline-flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                        >
+                          Talk to your twin →
+                        </a>
+                      </div>
+                      <p className="text-gray-400 text-xs mt-2">Save this link — it&apos;s the only way back to your twin.</p>
+                    </>
                   )}
-                  <p className="text-gray-400 text-xs mt-2">Save this link — it&apos;s the only way back to your twin.</p>
                 </div>
 
                 {twinResult && (
@@ -414,6 +710,10 @@ export default function CreatePage() {
               </div>
             )}
 
+            {submitError && (
+              <p className="text-sm text-red-500 mt-3">{submitError}</p>
+            )}
+
             {/* Navigation */}
             {step <= TOTAL_CONTENT_STEPS && (
               <div className="flex justify-between mt-8">
@@ -433,16 +733,13 @@ export default function CreatePage() {
                     Next <ArrowRight className="w-4 h-4" />
                   </button>
                 ) : (
-                  <div className="flex flex-col items-end gap-2">
-                    {submitError && <p className="text-xs text-red-500">{submitError}</p>}
-                    <button
-                      onClick={handleSubmit}
-                      disabled={!canAdvance() || submitting}
-                      className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Building twin...</> : <>Submit <Check className="w-4 h-4" /></>}
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!canAdvance() || submitting}
+                    className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Building twin...</> : <>Submit <Check className="w-4 h-4" /></>}
+                  </button>
                 )}
               </div>
             )}

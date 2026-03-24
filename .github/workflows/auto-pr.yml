@@ -1,8 +1,10 @@
-name: Auto-create PR
+name: Auto-create PR on branch push
 
 on:
   push:
-    branches-ignore: [main, SiddData]
+    branches-ignore:
+      - main
+      - SiddData
 
 permissions:
   contents: read
@@ -10,76 +12,31 @@ permissions:
 
 jobs:
   create-pr:
-    name: Open PR if none exists
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Check for existing PR
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR=$(gh pr list --head "${{ github.ref_name }}" --base main --json number --jq '.[0].number // ""')
-          echo "pr_number=$PR" >> $GITHUB_OUTPUT
-
-      - name: Generate PR description
-        id: description
-        if: steps.check.outputs.pr_number == ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Collect commits since this branch diverged from main
-          COMMITS=$(git log origin/main..HEAD --pretty=format:"- %s" | head -20)
-
-          # Collect changed files
-          FILES=$(git diff --name-only origin/main...HEAD | head -30 | sed 's/^/- /')
-
-          BODY=$(cat <<EOF
-          ## Summary
-          Auto-generated PR for branch \`${{ github.ref_name }}\`.
-
-          ## Commits
-          ${COMMITS}
-
-          ## Changed files
-          ${FILES}
-
-          ## Test plan
-          - [ ] Security scan passes
-          - [ ] Build artifacts succeed
-          - [ ] Tested locally
-          - [ ] No secrets exposed
-
-          ---
-          🤖 Generated with [Claude Code](https://claude.com/claude-code)
-          EOF
-          )
-
-          # Write to file to handle multiline safely
-          echo "$BODY" > /tmp/pr-body.txt
-
-      - name: Create PR
-        if: steps.check.outputs.pr_number == ''
+      - name: Create PR if it doesn't exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="${{ github.ref_name }}"
-          # Convert branch name to title: feature/create-your-twin → Create your twin
-          TITLE=$(echo "$BRANCH" | sed 's|.*/||' | tr '-' ' ' | sed 's/\b\w/\u&/g')
+
+          # Check if a PR already exists for this branch
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already exists for branch $BRANCH — skipping."
+            exit 0
+          fi
+
+          # Build a title from the branch name (replace hyphens/underscores with spaces, title-case)
+          TITLE=$(echo "$BRANCH" | sed 's/[-_]/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}')
 
           gh pr create \
-            --base main \
-            --head "$BRANCH" \
             --title "$TITLE" \
-            --body-file /tmp/pr-body.txt
-
-          echo "### PR Created ✅" >> $GITHUB_STEP_SUMMARY
-          echo "Branch \`$BRANCH\` → \`main\`" >> $GITHUB_STEP_SUMMARY
-
-      - name: PR already exists
-        if: steps.check.outputs.pr_number != ''
-        run: |
-          echo "### PR already exists (#${{ steps.check.outputs.pr_number }}) — skipping" >> $GITHUB_STEP_SUMMARY
+            --body "Automated PR for branch \`$BRANCH\`. Please review and update the description before merging." \
+            --base main \
+            --head "$BRANCH"

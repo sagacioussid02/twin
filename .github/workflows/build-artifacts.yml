@@ -30,6 +30,7 @@ jobs:
             pip install -r /dev/stdin -t lambda-package/ --quiet
           cp *.py lambda-package/
           cp -r data lambda-package/
+          cp -r personalities lambda-package/
           cd lambda-package && zip -r ../lambda-deployment.zip . -x "*.pyc" -x "*/__pycache__/*"
           echo "Lambda zip size: $(du -sh ../lambda-deployment.zip | cut -f1)"
 
