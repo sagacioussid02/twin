@@ -16,12 +16,13 @@ _ARCHETYPES_PATH = Path(__file__).parent / "personalities" / "archetypes.json"
 try:
     with open(_ARCHETYPES_PATH, "r", encoding="utf-8") as f:
         _ARCHETYPES: list[dict] = json.load(f)["archetypes"]
-except FileNotFoundError:
+except (FileNotFoundError, json.JSONDecodeError, KeyError, OSError) as e:
     logger.warning(
-        "archetypes.json not found at %s — archetype detection will be disabled and any supplied "
-        "archetype_id values will be rejected as unknown. Check that the file is included in your "
-        "deployment package.",
+        "Failed to load archetypes from %s — archetype detection will be disabled and any supplied "
+        "archetype_id values will be rejected as unknown. Ensure the file exists, contains valid JSON, "
+        "and has an 'archetypes' key. Error: %s",
         _ARCHETYPES_PATH,
+        e,
     )
     _ARCHETYPES = []
 
