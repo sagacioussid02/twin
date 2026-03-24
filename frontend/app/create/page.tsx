@@ -173,11 +173,14 @@ export default function CreatePage() {
         experience: data.experience || prev.experience,
         achievements: data.achievements || prev.achievements,
         communicationStyle: data.communicationStyle || prev.communicationStyle,
-        archetype_id: data.archetype_id || prev.archetype_id,
+        archetype_id: 'archetype_id' in data ? (data.archetype_id ?? '') : prev.archetype_id,
       }));
       if (data.archetype_id) {
         setDetectedArchetype(data.archetype_display_name);
         setArchetypeAutoDetected(true);
+      } else if ('archetype_id' in data) {
+        setDetectedArchetype(null);
+        setArchetypeAutoDetected(false);
       }
     } catch (err: unknown) {
       setParseError(err instanceof Error ? err.message : 'Failed to parse PDF');

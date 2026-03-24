@@ -4,9 +4,12 @@ twin responses to nudge tone/style toward the archetype.
 """
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Load archetypes once at module level
 _ARCHETYPES_PATH = Path(__file__).parent / "personalities" / "archetypes.json"
@@ -14,6 +17,11 @@ try:
     with open(_ARCHETYPES_PATH, "r", encoding="utf-8") as f:
         _ARCHETYPES: list[dict] = json.load(f)["archetypes"]
 except FileNotFoundError:
+    logger.warning(
+        "archetypes.json not found at %s — archetype detection and validation will be disabled. "
+        "Check that the file is included in your deployment package.",
+        _ARCHETYPES_PATH,
+    )
     _ARCHETYPES = []
 
 _ARCHETYPES_BY_ID: dict[str, dict] = {a["id"]: a for a in _ARCHETYPES}
@@ -40,12 +48,18 @@ def detect_archetype(title: str) -> Optional[dict]:
     # Strip "at <Company>" suffix — e.g. "Senior SWE at Acme" -> "Senior SWE"
     clean = re.sub(r"\s+at\s+.+$", "", title, flags=re.IGNORECASE).strip().lower()
 
+    best_match: Optional[dict] = None
+    best_pattern_len = 0
     for archetype in _ARCHETYPES:
         for pattern in archetype["title_patterns"]:
-            if pattern.lower() in clean:
-                return archetype
-
-    return None
+            normalized = pattern.strip().lower()
+            if not normalized:
+                continue
+            if re.search(r"\b" + re.escape(normalized) + r"\b", clean):
+                if len(normalized) > best_pattern_len:
+                    best_pattern_len = len(normalized)
+                    best_match = archetype
+    return best_match
 
 
 def build_review_prompt(draft: str, archetype: dict, twin_context: str) -> str:
