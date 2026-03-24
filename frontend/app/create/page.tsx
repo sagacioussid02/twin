@@ -522,30 +522,36 @@ export default function CreatePage() {
                 </div>
 
                 {/* Response style selector */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Response length</label>
-                  <div className="grid grid-cols-3 gap-2">
+                <fieldset>
+                  <legend className="block text-sm font-medium text-gray-700 mb-2">Response length</legend>
+                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Response length">
                     {([
                       { value: 'concise', label: 'Concise', desc: '1–3 sentences' },
                       { value: 'balanced', label: 'Balanced', desc: '3–6 sentences' },
                       { value: 'detailed', label: 'Detailed', desc: 'Full explanation' },
                     ] as const).map(opt => (
-                      <button
+                      <label
                         key={opt.value}
-                        type="button"
-                        onClick={() => setForm(prev => ({ ...prev, responseStyle: opt.value }))}
-                        className={`p-3 rounded-lg border text-left transition-colors ${
+                        className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                           form.responseStyle === opt.value
                             ? 'bg-purple-600 border-purple-600 text-white'
                             : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400'
                         }`}
                       >
+                        <input
+                          type="radio"
+                          name="responseStyle"
+                          value={opt.value}
+                          checked={form.responseStyle === opt.value}
+                          onChange={() => setForm(prev => ({ ...prev, responseStyle: opt.value }))}
+                          className="sr-only"
+                        />
                         <div className="font-medium text-sm">{opt.label}</div>
                         <div className={`text-xs mt-0.5 ${form.responseStyle === opt.value ? 'text-purple-200' : 'text-gray-400'}`}>{opt.desc}</div>
-                      </button>
+                      </label>
                     ))}
                   </div>
-                </div>
+                </fieldset>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Communication style *</label>
