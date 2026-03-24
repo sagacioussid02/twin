@@ -125,6 +125,7 @@ export default function CreatePage() {
   const [twinResult, setTwinResult] = useState<{ twin_id: string; personality_model: PersonalityModel } | null>(null);
   const [archetypes, setArchetypes] = useState<Archetype[]>([]);
   const [detectedArchetype, setDetectedArchetype] = useState<string | null>(null);
+  const [archetypeAutoDetected, setArchetypeAutoDetected] = useState(false);
   const [showArchetypeDropdown, setShowArchetypeDropdown] = useState(false);
   const [selectedQuirks, setSelectedQuirks] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +154,7 @@ export default function CreatePage() {
     setParsing(true);
     setParseError('');
     setDetectedArchetype(null);
+    setArchetypeAutoDetected(false);
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -175,6 +177,7 @@ export default function CreatePage() {
       }));
       if (data.archetype_id) {
         setDetectedArchetype(data.archetype_display_name);
+        setArchetypeAutoDetected(true);
       }
     } catch (err: unknown) {
       setParseError(err instanceof Error ? err.message : 'Failed to parse PDF');
@@ -320,7 +323,7 @@ export default function CreatePage() {
                     <div className="mt-3 flex items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
                         <Sparkles className="w-3 h-3" />
-                        Detected: {detectedArchetype}
+                        {archetypeAutoDetected ? 'Detected' : 'Archetype'}: {detectedArchetype}
                       </span>
                       <button
                         type="button"
@@ -346,6 +349,7 @@ export default function CreatePage() {
                           set('archetype_id')(e);
                           const chosen = archetypes.find(a => a.id === e.target.value);
                           setDetectedArchetype(chosen?.display_name || null);
+                          setArchetypeAutoDetected(false);
                           setShowArchetypeDropdown(false);
                         }}
                         className="w-full appearance-none px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 bg-white pr-10"
