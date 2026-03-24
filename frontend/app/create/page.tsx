@@ -403,7 +403,7 @@ export default function CreatePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="field-email" className="block text-sm font-medium text-gray-700 mb-1">Email (to receive your twin link)</label>
+                  <label htmlFor="field-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
                   <input
                     id="field-email"
                     type="email"
