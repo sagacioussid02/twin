@@ -139,7 +139,7 @@ function TwinChat() {
                 {profile.title && <p className="text-sm text-gray-500 mt-0.5">{profile.title}</p>}
                 {profile.archetype_display_name && (
                   <span className="inline-block mt-1 text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full">
-                    ✨ {profile.archetype_display_name} personality
+                    <span aria-hidden="true">✨</span> {profile.archetype_display_name} personality
                   </span>
                 )}
                 {profile.personality_summary && (

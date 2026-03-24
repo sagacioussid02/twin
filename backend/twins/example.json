@@ -1,5 +1,5 @@
 {
-  "twin_id": "example",
+  "twin_id": "00000000000000000000000000000000",
   "name": "Jane Doe",
   "title": "Senior Software Engineer at Acme Corp",
   "archetype_id": "principal_engineer",
@@ -20,5 +20,5 @@
     }
   },
   "created_at": "2026-01-01T00:00:00.000000",
-  "chat_url": "/twin?id=example"
+  "chat_url": "/twin?id=00000000000000000000000000000000"
 }
