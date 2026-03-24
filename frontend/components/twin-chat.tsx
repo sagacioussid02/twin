@@ -17,7 +17,7 @@ interface Props {
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export default function TwinChat({ twinId, twinName }: Props) {
+function TwinChat({ twinId, twinName }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
