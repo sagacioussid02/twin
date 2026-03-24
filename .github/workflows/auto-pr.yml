@@ -25,7 +25,7 @@ jobs:
           BRANCH="${{ github.ref_name }}"
 
           # Check if a PR already exists for this branch
-          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty')
 
           if [ -n "$EXISTING" ]; then
             echo "PR #$EXISTING already exists for branch $BRANCH — skipping."
