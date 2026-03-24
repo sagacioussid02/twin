@@ -366,8 +366,9 @@ export default function CreatePage() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                  <label htmlFor="field-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
                   <input
+                    id="field-name"
                     type="text"
                     value={form.name}
                     onChange={set('name')}
@@ -376,8 +377,9 @@ export default function CreatePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Professional Title *</label>
+                  <label htmlFor="field-title" className="block text-sm font-medium text-gray-700 mb-1">Professional Title *</label>
                   <input
+                    id="field-title"
                     type="text"
                     value={form.title}
                     onChange={set('title')}
@@ -386,8 +388,9 @@ export default function CreatePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Short Bio *</label>
+                  <label htmlFor="field-bio" className="block text-sm font-medium text-gray-700 mb-1">Short Bio *</label>
                   <textarea
+                    id="field-bio"
                     value={form.bio}
                     onChange={set('bio')}
                     rows={4}
@@ -396,8 +399,9 @@ export default function CreatePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email (to receive your twin link)</label>
+                  <label htmlFor="field-email" className="block text-sm font-medium text-gray-700 mb-1">Email (to receive your twin link)</label>
                   <input
+                    id="field-email"
                     type="email"
                     value={form.email}
                     onChange={set('email')}
