@@ -610,6 +610,7 @@ export default function CreatePage() {
                       <button
                         key={quirk}
                         type="button"
+                        aria-pressed={selectedQuirks.has(quirk)}
                         onClick={() => toggleQuirk(quirk)}
                         className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors text-left ${
                           selectedQuirks.has(quirk)
