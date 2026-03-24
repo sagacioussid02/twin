@@ -18,8 +18,9 @@ try:
         _ARCHETYPES: list[dict] = json.load(f)["archetypes"]
 except FileNotFoundError:
     logger.warning(
-        "archetypes.json not found at %s — archetype detection and validation will be disabled. "
-        "Check that the file is included in your deployment package.",
+        "archetypes.json not found at %s — archetype detection will be disabled and any supplied "
+        "archetype_id values will be rejected as unknown. Check that the file is included in your "
+        "deployment package.",
         _ARCHETYPES_PATH,
     )
     _ARCHETYPES = []
