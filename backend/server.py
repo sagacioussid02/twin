@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import json
 import uuid
 from datetime import datetime
@@ -11,7 +11,8 @@ import boto3
 from botocore.exceptions import ClientError
 from pypdf import PdfReader
 import io
-from context import prompt
+from context import prompt, build_prompt
+from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
 
 # Load environment variables
 load_dotenv()
@@ -41,6 +42,7 @@ BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.amazon.nova-2-lite-v1:0
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
+TWINS_DIR = os.path.join(os.path.dirname(__file__), "twins")
 
 # Initialize S3 client if needed
 if USE_S3:
@@ -51,6 +53,7 @@ if USE_S3:
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    archetype_id: Optional[str] = None  # only used on first message of a session
 
 
 class ChatResponse(BaseModel):
@@ -64,45 +67,103 @@ class Message(BaseModel):
     timestamp: str
 
 
+class CreateTwinRequest(BaseModel):
+    name: str
+    title: str
+    bio: str
+    skills: str
+    experience: str
+    achievements: Optional[str] = ""
+    communicationStyle: str
+    verbalQuirks: Optional[str] = ""
+    responseStyle: Optional[str] = "balanced"  # concise | balanced | detailed
+    email: Optional[str] = ""
+    archetype_id: Optional[str] = None
+
+
+class TwinRecord(BaseModel):
+    twin_id: str
+    name: str
+    title: str
+    archetype_id: Optional[str]
+    archetype_display_name: Optional[str]
+    chat_url: str
+    raw: Dict[str, Any]
+
+
 # Memory management functions
 def get_memory_path(session_id: str) -> str:
     return f"{session_id}.json"
 
 
-def load_conversation(session_id: str) -> List[Dict]:
-    """Load conversation history from storage"""
+def load_session(session_id: str) -> Dict:
+    """Load session (messages + metadata) from storage. Returns {"messages": [], "archetype_id": None}."""
+    raw = None
     if USE_S3:
         try:
             response = s3_client.get_object(Bucket=S3_BUCKET, Key=get_memory_path(session_id))
-            return json.loads(response["Body"].read().decode("utf-8"))
+            raw = json.loads(response["Body"].read().decode("utf-8"))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                return []
-            raise
+                pass
+            else:
+                raise
     else:
-        # Local file storage
         file_path = os.path.join(MEMORY_DIR, get_memory_path(session_id))
         if os.path.exists(file_path):
             with open(file_path, "r") as f:
-                return json.load(f)
-        return []
+                raw = json.load(f)
+
+    if raw is None:
+        return {"messages": [], "archetype_id": None}
+    # Legacy: plain list of messages
+    if isinstance(raw, list):
+        return {"messages": raw, "archetype_id": None}
+    return raw
 
 
-def save_conversation(session_id: str, messages: List[Dict]):
-    """Save conversation history to storage"""
+def load_conversation(session_id: str) -> List[Dict]:
+    """Backward-compatible: return just the messages list."""
+    return load_session(session_id)["messages"]
+
+
+def save_session(session_id: str, messages: List[Dict], archetype_id: Optional[str] = None):
+    """Save session with messages and metadata."""
+    data = {"messages": messages, "archetype_id": archetype_id}
     if USE_S3:
         s3_client.put_object(
             Bucket=S3_BUCKET,
             Key=get_memory_path(session_id),
-            Body=json.dumps(messages, indent=2),
+            Body=json.dumps(data, indent=2),
             ContentType="application/json",
         )
     else:
-        # Local file storage
         os.makedirs(MEMORY_DIR, exist_ok=True)
         file_path = os.path.join(MEMORY_DIR, get_memory_path(session_id))
         with open(file_path, "w") as f:
-            json.dump(messages, f, indent=2)
+            json.dump(data, f, indent=2)
+
+
+def save_conversation(session_id: str, messages: List[Dict]):
+    """Backward-compatible: save messages, preserving existing archetype_id."""
+    existing = load_session(session_id)
+    save_session(session_id, messages, existing.get("archetype_id"))
+
+
+# Twin storage helpers
+def load_twin(twin_id: str) -> Optional[Dict]:
+    path = os.path.join(TWINS_DIR, f"{twin_id}.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return None
+
+
+def save_twin(twin_id: str, data: Dict):
+    os.makedirs(TWINS_DIR, exist_ok=True)
+    path = os.path.join(TWINS_DIR, f"{twin_id}.json")
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 def call_bedrock(conversation: List[Dict], user_message: str) -> str:
@@ -182,29 +243,32 @@ async def health_check():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
-        # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())
 
-        # Load conversation history
-        conversation = load_conversation(session_id)
+        session = load_session(session_id)
+        conversation = session["messages"]
 
-        # Call Bedrock for response
-        assistant_response = call_bedrock(conversation, request.message)
+        # On first message, persist archetype_id from request
+        archetype_id = session.get("archetype_id") or request.archetype_id
 
-        # Update conversation history
+        draft = call_bedrock(conversation, request.message)
+
+        # Personality review step
+        archetype = get_archetype(archetype_id) if archetype_id else None
+        if archetype:
+            twin_context = f"This is Sidd's AI twin — a digital twin for professional conversations."
+            assistant_response = review_response(draft, archetype, twin_context, bedrock_client, BEDROCK_MODEL_ID)
+        else:
+            assistant_response = draft
+
         conversation.append(
             {"role": "user", "content": request.message, "timestamp": datetime.now().isoformat()}
         )
         conversation.append(
-            {
-                "role": "assistant",
-                "content": assistant_response,
-                "timestamp": datetime.now().isoformat(),
-            }
+            {"role": "assistant", "content": assistant_response, "timestamp": datetime.now().isoformat()}
         )
 
-        # Save conversation
-        save_conversation(session_id, conversation)
+        save_session(session_id, conversation, archetype_id)
 
         return ChatResponse(response=assistant_response, session_id=session_id)
 
@@ -357,12 +421,136 @@ If a field cannot be determined, use an empty string. Return only the JSON, no o
             raise HTTPException(status_code=500, detail="Could not parse AI response")
 
         parsed = json.loads(json_match.group())
+
+        # Detect archetype from title
+        archetype = detect_archetype(parsed.get("title", ""))
+        parsed["archetype_id"] = archetype["id"] if archetype else None
+        parsed["archetype_display_name"] = archetype["display_name"] if archetype else None
+
         return parsed
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="AI returned invalid JSON")
     except ClientError as e:
         raise HTTPException(status_code=500, detail=f"Bedrock error: {str(e)}")
+
+
+@app.get("/archetypes")
+async def list_archetypes():
+    """Return all available archetypes for the frontend dropdown."""
+    return {"archetypes": get_all_archetypes()}
+
+
+@app.post("/twins", response_model=TwinRecord)
+async def create_twin(request: CreateTwinRequest):
+    """
+    Save a new twin from the create-your-twin form.
+    Returns twin_id and chat_url so the frontend can redirect immediately.
+    """
+    twin_id = str(uuid.uuid4())[:8]
+
+    archetype = get_archetype(request.archetype_id) if request.archetype_id else None
+
+    twin_data = {
+        "twin_id": twin_id,
+        "name": request.name,
+        "title": request.title,
+        "email": request.email,
+        "archetype_id": archetype["id"] if archetype else None,
+        "archetype_display_name": archetype["display_name"] if archetype else None,
+        "chat_url": f"/twin?id={twin_id}",
+        "created_at": datetime.now().isoformat(),
+        "raw": {
+            "name": request.name,
+            "title": request.title,
+            "bio": request.bio,
+            "skills": request.skills,
+            "experience": request.experience,
+            "achievements": request.achievements,
+            "communicationStyle": request.communicationStyle,
+            "verbalQuirks": request.verbalQuirks,
+            "responseStyle": request.responseStyle,
+        },
+    }
+
+    save_twin(twin_id, twin_data)
+
+    return TwinRecord(
+        twin_id=twin_id,
+        name=request.name,
+        title=request.title,
+        archetype_id=twin_data["archetype_id"],
+        archetype_display_name=twin_data["archetype_display_name"],
+        chat_url=twin_data["chat_url"],
+        raw=twin_data["raw"],
+    )
+
+
+@app.get("/twins/{twin_id}")
+async def get_twin(twin_id: str):
+    """Fetch a twin record by ID."""
+    twin = load_twin(twin_id)
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+    return twin
+
+
+@app.post("/twin/{twin_id}/chat", response_model=ChatResponse)
+async def twin_chat(twin_id: str, request: ChatRequest):
+    """
+    Chat endpoint for a specific twin (created via /twins).
+    Uses the twin's stored data and archetype for context and personality review.
+    """
+    twin = load_twin(twin_id)
+    if not twin:
+        raise HTTPException(status_code=404, detail="Twin not found")
+
+    session_id = request.session_id or str(uuid.uuid4())
+    session = load_session(session_id)
+    conversation = session["messages"]
+
+    archetype_id = twin.get("archetype_id")
+    twin_system_prompt = build_prompt(twin["raw"])
+
+    # Build messages using the twin's specific system prompt
+    messages = [
+        {"role": "user", "content": [{"text": f"System: {twin_system_prompt}"}]}
+    ]
+    for msg in conversation[-50:]:
+        messages.append({
+            "role": msg["role"],
+            "content": [{"text": msg["content"]}],
+        })
+    messages.append({"role": "user", "content": [{"text": request.message}]})
+
+    try:
+        response = bedrock_client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=messages,
+            inferenceConfig={"maxTokens": 2000, "temperature": 0.7, "topP": 0.9},
+        )
+        draft = response["output"]["message"]["content"][0]["text"]
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"Bedrock error: {str(e)}")
+
+    # Personality review step
+    archetype = get_archetype(archetype_id) if archetype_id else None
+    if archetype:
+        twin_context = f"{twin['name']}, {twin['title']}. {twin['raw'].get('bio', '')[:200]}"
+        assistant_response = review_response(draft, archetype, twin_context, bedrock_client, BEDROCK_MODEL_ID)
+    else:
+        assistant_response = draft
+
+    conversation.append(
+        {"role": "user", "content": request.message, "timestamp": datetime.now().isoformat()}
+    )
+    conversation.append(
+        {"role": "assistant", "content": assistant_response, "timestamp": datetime.now().isoformat()}
+    )
+
+    save_session(session_id, conversation, archetype_id)
+
+    return ChatResponse(response=assistant_response, session_id=session_id)
 
 
 if __name__ == "__main__":

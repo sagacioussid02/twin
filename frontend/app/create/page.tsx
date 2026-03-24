@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { ArrowLeft, ArrowRight, Check, Upload, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ArrowLeft, ArrowRight, Check, Upload, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 
 interface FormData {
   name: string;
@@ -11,8 +11,35 @@ interface FormData {
   experience: string;
   achievements: string;
   communicationStyle: string;
+  verbalQuirks: string;
+  responseStyle: 'concise' | 'balanced' | 'detailed';
   email: string;
+  archetype_id: string;
 }
+
+interface Archetype {
+  id: string;
+  display_name: string;
+}
+
+const PRESET_QUIRKS = [
+  "Always starts with 'So here's the thing...'",
+  "Says 'at the end of the day' a lot",
+  "Asks 'what's the worst case?' before agreeing",
+  "Thinks out loud before landing on an answer",
+  "Short sentences. No fluff.",
+  "Uses analogies to explain technical things",
+  "Ends with 'does that make sense?'",
+  "Brings everything back to first principles",
+  "Says 'I don't know' openly when uncertain",
+  "Prefers bullet points over paragraphs",
+  "Steelmans the opposing view before arguing",
+  "Uses 'to be fair' as a filler",
+  "Never uses exclamation marks",
+  "Starts questions with 'Curious —'",
+  "Challenges assumptions before answering",
+  "Uses 'the thing is...' a lot",
+];
 
 const STEPS = [
   { id: 1, label: 'Basic Info' },
@@ -29,29 +56,52 @@ const empty: FormData = {
   experience: '',
   achievements: '',
   communicationStyle: '',
+  verbalQuirks: '',
+  responseStyle: 'balanced',
   email: '',
+  archetype_id: '',
 };
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function CreatePage() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>(empty);
-  const [submitted, setSubmitted] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [twinResult, setTwinResult] = useState<{ twin_id: string; chat_url: string; name: string } | null>(null);
+  const [archetypes, setArchetypes] = useState<Archetype[]>([]);
+  const [detectedArchetype, setDetectedArchetype] = useState<string | null>(null);
+  const [showArchetypeDropdown, setShowArchetypeDropdown] = useState(false);
+  const [selectedQuirks, setSelectedQuirks] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleQuirk = (quirk: string) =>
+    setSelectedQuirks(prev => {
+      const next = new Set(prev);
+      next.has(quirk) ? next.delete(quirk) : next.add(quirk);
+      return next;
+    });
+
+  useEffect(() => {
+    fetch(`${API}/archetypes`)
+      .then(r => r.json())
+      .then(d => setArchetypes(d.archetypes || []))
+      .catch(() => {});
+  }, []);
 
   const handleLinkedInUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setParsing(true);
     setParseError('');
+    setDetectedArchetype(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/parse-linkedin`, {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch(`${API}/parse-linkedin`, { method: 'POST', body: formData });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || 'Failed to parse PDF');
@@ -66,7 +116,11 @@ export default function CreatePage() {
         experience: data.experience || prev.experience,
         achievements: data.achievements || prev.achievements,
         communicationStyle: data.communicationStyle || prev.communicationStyle,
+        archetype_id: data.archetype_id || prev.archetype_id,
       }));
+      if (data.archetype_id) {
+        setDetectedArchetype(data.archetype_display_name);
+      }
     } catch (err: unknown) {
       setParseError(err instanceof Error ? err.message : 'Failed to parse PDF');
     } finally {
@@ -75,7 +129,7 @@ export default function CreatePage() {
     }
   };
 
-  const set = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+  const set = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(prev => ({ ...prev, [field]: e.target.value }));
 
   const canAdvance = () => {
@@ -85,12 +139,45 @@ export default function CreatePage() {
     return true;
   };
 
-  const handleSubmit = () => {
-    // TODO: send to backend
-    console.log('Submitting twin data:', form);
-    setSubmitted(true);
-    setStep(4);
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      const res = await fetch(`${API}/twins`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          title: form.title,
+          bio: form.bio,
+          skills: form.skills,
+          experience: form.experience,
+          achievements: form.achievements,
+          communicationStyle: form.communicationStyle,
+          responseStyle: form.responseStyle,
+          verbalQuirks: [
+            ...[...selectedQuirks],
+            ...(form.verbalQuirks.trim() ? [form.verbalQuirks.trim()] : []),
+          ].join('\n'),
+          email: form.email,
+          archetype_id: form.archetype_id || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to create twin');
+      }
+      const data = await res.json();
+      setTwinResult({ twin_id: data.twin_id, chat_url: data.chat_url, name: data.name });
+      setStep(4);
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const selectedArchetypeName = archetypes.find(a => a.id === form.archetype_id)?.display_name;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
@@ -145,9 +232,7 @@ export default function CreatePage() {
                   <label
                     htmlFor="linkedin-upload"
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit ${
-                      parsing
-                        ? 'bg-purple-200 text-purple-500 cursor-not-allowed'
-                        : 'bg-purple-600 text-white hover:bg-purple-700'
+                      parsing ? 'bg-purple-200 text-purple-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'
                     }`}
                   >
                     {parsing ? (
@@ -157,7 +242,57 @@ export default function CreatePage() {
                     )}
                   </label>
                   {parseError && <p className="text-xs text-red-500 mt-2">{parseError}</p>}
+
+                  {/* Archetype detection result */}
+                  {detectedArchetype && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                        <Sparkles className="w-3 h-3" />
+                        Detected: {detectedArchetype}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowArchetypeDropdown(v => !v)}
+                        className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                      >
+                        change
+                      </button>
+                    </div>
+                  )}
                 </div>
+
+                {/* Archetype selector — shown when: no auto-detect, or user clicked change */}
+                {(showArchetypeDropdown || (!detectedArchetype && archetypes.length > 0)) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Role Archetype <span className="text-gray-400 font-normal">(optional — shapes twin personality)</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.archetype_id}
+                        onChange={e => {
+                          set('archetype_id')(e);
+                          const chosen = archetypes.find(a => a.id === e.target.value);
+                          setDetectedArchetype(chosen?.display_name || null);
+                          setShowArchetypeDropdown(false);
+                        }}
+                        className="w-full appearance-none px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 bg-white pr-10"
+                      >
+                        <option value="">Select a role archetype...</option>
+                        {archetypes.map(a => (
+                          <option key={a.id} value={a.id}>{a.display_name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                    {selectedArchetypeName && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        The twin&apos;s responses will be reviewed by a {selectedArchetypeName} personality agent.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
                   <input
@@ -240,6 +375,39 @@ export default function CreatePage() {
             {step === 3 && (
               <div className="space-y-5">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Your Personality &amp; Style</h2>
+                {form.archetype_id && selectedArchetypeName && (
+                  <div className="flex items-start gap-2 p-3 bg-purple-50 border border-purple-100 rounded-lg text-sm text-purple-700">
+                    <Sparkles className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      <strong>{selectedArchetypeName}</strong> archetype will be applied — a personality agent will shape
+                      how your twin communicates based on this role&apos;s traits.
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Response length</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { value: 'concise', label: 'Concise', desc: '1–3 sentences' },
+                      { value: 'balanced', label: 'Balanced', desc: '3–6 sentences' },
+                      { value: 'detailed', label: 'Detailed', desc: 'Full explanation' },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, responseStyle: opt.value }))}
+                        className={`p-3 rounded-lg border text-left transition-colors ${
+                          form.responseStyle === opt.value
+                            ? 'bg-purple-600 border-purple-600 text-white'
+                            : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400'
+                        }`}
+                      >
+                        <div className="font-medium text-sm">{opt.label}</div>
+                        <div className={`text-xs mt-0.5 ${form.responseStyle === opt.value ? 'text-purple-200' : 'text-gray-400'}`}>{opt.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Communication Style *</label>
                   <textarea
@@ -251,19 +419,59 @@ export default function CreatePage() {
                   />
                   <p className="text-xs text-gray-400 mt-1">This shapes how your twin talks — be as specific as you like.</p>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Verbal quirks <span className="text-gray-400 font-normal">(optional — select any that fit)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {PRESET_QUIRKS.map(quirk => (
+                      <button
+                        key={quirk}
+                        type="button"
+                        onClick={() => toggleQuirk(quirk)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors text-left ${
+                          selectedQuirks.has(quirk)
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400 hover:text-purple-600'
+                        }`}
+                      >
+                        {quirk}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={form.verbalQuirks}
+                    onChange={set('verbalQuirks')}
+                    rows={2}
+                    placeholder="Anything else specific to add..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 resize-none text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">The human fingerprint — small habits that make this person sound like themselves.</p>
+                </div>
               </div>
             )}
 
-            {step === 4 && (
+            {step === 4 && twinResult && (
               <div className="text-center py-8">
                 <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Check className="w-8 h-8 text-purple-600" />
                 </div>
-                <h2 className="text-2xl font-semibold text-gray-800 mb-2">You&apos;re on the list!</h2>
-                <p className="text-gray-500 max-w-sm mx-auto">
-                  We&apos;ve received your details. We&apos;ll build your AI twin and {form.email ? `send the link to ${form.email}` : 'have it ready for you'} soon.
+                <h2 className="text-2xl font-semibold text-gray-800 mb-2">Your twin is ready!</h2>
+                <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                  {twinResult.name}&apos;s AI twin has been created.
+                  {form.email ? ` We'll also send the link to ${form.email}.` : ''}
                 </p>
+                <a
+                  href={`/twin?id=${twinResult.twin_id}`}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors"
+                >
+                  Chat with {twinResult.name}&apos;s Twin →
+                </a>
               </div>
+            )}
+
+            {submitError && (
+              <p className="text-sm text-red-500 mt-3">{submitError}</p>
             )}
 
             {/* Navigation */}
@@ -287,10 +495,10 @@ export default function CreatePage() {
                 ) : (
                   <button
                     onClick={handleSubmit}
-                    disabled={!canAdvance()}
+                    disabled={!canAdvance() || submitting}
                     className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
-                    Submit <Check className="w-4 h-4" />
+                    {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><Check className="w-4 h-4" /> Create Twin</>}
                   </button>
                 )}
               </div>
