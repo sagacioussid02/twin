@@ -235,12 +235,13 @@ class CreateTwinRequest(BaseModel):
     @field_validator("responseStyle")
     @classmethod
     def strip_response_style(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
+        if not v:
             return "balanced"
-        v = v.strip()
-        if len(v) > 20:
-            raise ValueError("responseStyle must be 20 characters or fewer")
-        return v or "balanced"
+        v_normalized = v.strip().lower()
+        allowed_styles = {"concise", "balanced", "detailed"}
+        if v_normalized not in allowed_styles:
+            return "balanced"
+        return v_normalized
 
     @field_validator("verbalQuirks")
     @classmethod
@@ -719,9 +720,11 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
         "responseStyle": request.responseStyle or "balanced",
     }
 
-    # Resolve archetype
+    # Resolve archetype — reject unknown IDs so clients aren't misled
     archetype_id = request.archetype_id or None
     archetype_obj = get_archetype(archetype_id) if archetype_id else None
+    if archetype_id and archetype_obj is None:
+        raise HTTPException(status_code=400, detail=f"Unknown archetype_id: {archetype_id!r}")
     archetype_display_name = archetype_obj["display_name"] if archetype_obj else None
 
     twin_data: Dict[str, Any] = {
