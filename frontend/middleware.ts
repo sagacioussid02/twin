@@ -1,17 +1,10 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/twin(.*)",   // public chat pages are accessible without login
-]);
-
-export default clerkMiddleware(async (auth, request) => {
-  if (!isPublicRoute(request)) {
-    await auth.protect();
-  }
-});
+export default function middleware(request: NextRequest) {
+  // No-op middleware for static export deployments.
+  // Auth is enforced on the client (useAuth/isSignedIn) and in backend routes instead.
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
