@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export default function middleware(request: NextRequest) {
+export default function middleware() {
   // No-op middleware for static export deployments.
   // Auth is enforced on the client (useAuth/isSignedIn) and in backend routes instead.
   return NextResponse.next();
