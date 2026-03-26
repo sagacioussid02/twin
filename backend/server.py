@@ -112,7 +112,13 @@ def _find_key(jwks: dict, kid: str) -> Optional[dict]:
 
 
 async def _decode_user_id(credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
-    """Decode user_id from credentials. Returns None if missing or invalid (never raises)."""
+    """Decode user_id from credentials.
+
+    Returns None for missing credentials or JWT validation failures (expired,
+    bad signature, unknown kid). Propagates 5xx HTTPExceptions from auth
+    infrastructure (JWKS fetch timeout, misconfigured CLERK_JWKS_URL, etc.) so
+    callers can surface them correctly rather than masking outages as 401s.
+    """
     if not credentials:
         return None
     token = credentials.credentials
@@ -143,14 +149,21 @@ async def _decode_user_id(credentials: Optional[HTTPAuthorizationCredentials]) -
         )
         user_id: str = payload.get("sub", "")
         return user_id or None
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, HTTPException):
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        # Token is bad/expired — treat as anonymous, don't raise
         return None
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            raise  # Auth infrastructure failure — propagate so it surfaces correctly
+        return None  # 4xx from auth layer — treat as invalid token
 
 
 async def get_current_user_id(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> str:
-    """Strict auth — raises 401 if token is missing or invalid. Use for protected endpoints."""
+    """Strict auth — raises 401 if token is missing or invalid. Use for protected endpoints.
+    5xx auth infrastructure errors (JWKS outage, misconfiguration) propagate as-is.
+    """
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user_id = await _decode_user_id(credentials)
