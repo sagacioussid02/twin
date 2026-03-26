@@ -133,6 +133,15 @@ export default function CreatePage() {
   const [showArchetypeDropdown, setShowArchetypeDropdown] = useState(false);
   const [selectedQuirks, setSelectedQuirks] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current !== null) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const toggleQuirk = (quirk: string) =>
     setSelectedQuirks(prev => {
@@ -243,7 +252,7 @@ export default function CreatePage() {
       const data = await res.json();
       setTwinResult(data);
       setStep(5);
-      setTimeout(() => router.push('/dashboard'), 3000);
+      redirectTimeoutRef.current = setTimeout(() => router.push('/dashboard'), 3000);
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
