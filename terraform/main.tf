@@ -208,6 +208,7 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET        = aws_s3_bucket.memory.id
       USE_S3           = "true"
       BEDROCK_MODEL_ID = var.bedrock_model_id
+      CLERK_JWKS_URL   = var.clerk_jwks_url
     }
   }
 
@@ -307,6 +308,12 @@ resource "aws_apigatewayv2_route" "get_twin" {
 resource "aws_apigatewayv2_route" "post_create_twin" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /create-twin"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "get_user_twins" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /users/me/twins"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 

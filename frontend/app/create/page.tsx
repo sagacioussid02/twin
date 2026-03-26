@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Check, Upload, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 
 interface FormData {
@@ -116,6 +118,8 @@ interface PersonalityModel {
 }
 
 export default function CreatePage() {
+  const { getToken } = useAuth();
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>(empty);
   const [parsing, setParsing] = useState(false);
@@ -202,9 +206,13 @@ export default function CreatePage() {
     setSubmitting(true);
     setSubmitError('');
     try {
+      const token = await getToken();
       const res = await fetch(`${API}/create-twin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           name: form.name,
           title: form.title,
@@ -235,6 +243,7 @@ export default function CreatePage() {
       const data = await res.json();
       setTwinResult(data);
       setStep(5);
+      setTimeout(() => router.push('/dashboard'), 3000);
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {

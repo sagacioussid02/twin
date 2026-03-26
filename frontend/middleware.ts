@@ -1,10 +1,17 @@
-import { NextResponse } from "next/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default function middleware() {
-  // No-op middleware for static export deployments.
-  // Auth is enforced on the client (useAuth/isSignedIn) and in backend routes instead.
-  return NextResponse.next();
-}
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/twin(.*)",
+]);
+
+export default clerkMiddleware(async (auth, request) => {
+  if (!isPublicRoute(request)) {
+    await auth.protect();
+  }
+});
 
 export const config = {
   matcher: [

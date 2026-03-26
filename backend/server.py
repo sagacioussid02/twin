@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import field_validator
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,6 +15,8 @@ from botocore.exceptions import ClientError
 from pathlib import Path
 from pypdf import PdfReader
 import io
+import httpx
+import jwt
 from context import prompt
 from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
 
@@ -59,6 +62,51 @@ TWINS_DIR = "/tmp/twins" if _IN_LAMBDA else os.path.join(os.path.dirname(__file_
 TWINS_S3_PREFIX = "twins/"
 
 _TWIN_ID_RE = re.compile(r'^[a-f0-9]{32}$')
+
+# --- Clerk JWT auth ---
+CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
+_jwks_cache: Optional[dict] = None
+_bearer = HTTPBearer(auto_error=False)
+
+
+async def _get_jwks() -> dict:
+    global _jwks_cache
+    if _jwks_cache:
+        return _jwks_cache
+    if not CLERK_JWKS_URL:
+        raise HTTPException(status_code=500, detail="Auth not configured")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(CLERK_JWKS_URL)
+        resp.raise_for_status()
+    _jwks_cache = resp.json()
+    return _jwks_cache
+
+
+async def get_current_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> str:
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = credentials.credentials
+    try:
+        jwks = await _get_jwks()
+        header = jwt.get_unverified_header(token)
+        key = next(
+            (k for k in jwks["keys"] if k.get("kid") == header.get("kid")),
+            None,
+        )
+        if key is None:
+            raise HTTPException(status_code=401, detail="Unknown token key")
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+        payload = jwt.decode(token, public_key, algorithms=["RS256"])
+        user_id: str = payload.get("sub", "")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # Expected keys for the personality model returned by /create-twin
 _PERSONALITY_MODEL_KEYS = {
@@ -623,8 +671,51 @@ async def get_twin(twin_id: str):
     }
 
 
+@app.get("/users/me/twins")
+async def list_my_twins(user_id: str = Depends(get_current_user_id)):
+    """List all twins belonging to the authenticated user."""
+    twins = []
+    if USE_S3:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=TWINS_S3_PREFIX):
+            for obj in page.get("Contents", []):
+                try:
+                    resp = s3_client.get_object(Bucket=S3_BUCKET, Key=obj["Key"])
+                    data = json.loads(resp["Body"].read())
+                    if data.get("user_id") == user_id:
+                        twins.append({
+                            "twin_id": data["twin_id"],
+                            "name": data["name"],
+                            "title": data.get("title", ""),
+                            "archetype_display_name": data.get("archetype_display_name"),
+                            "created_at": data.get("created_at", ""),
+                            "chat_url": data.get("chat_url", f"/twin?id={data['twin_id']}"),
+                        })
+                except Exception:
+                    continue
+    else:
+        twins_path = Path(TWINS_DIR)
+        if twins_path.exists():
+            for f in sorted(twins_path.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    data = json.loads(f.read_text())
+                    if data.get("user_id") == user_id:
+                        twins.append({
+                            "twin_id": data["twin_id"],
+                            "name": data["name"],
+                            "title": data.get("title", ""),
+                            "archetype_display_name": data.get("archetype_display_name"),
+                            "created_at": data.get("created_at", ""),
+                            "chat_url": data.get("chat_url", f"/twin?id={data['twin_id']}"),
+                        })
+                except Exception:
+                    continue
+    twins.sort(key=lambda t: t["created_at"], reverse=True)
+    return {"twins": twins}
+
+
 @app.post("/create-twin")
-async def create_twin(request: CreateTwinRequest):
+async def create_twin(request: CreateTwinRequest, user_id: str = Depends(get_current_user_id)):
     """Synthesize submitted profile data into a structured personality model via Bedrock"""
 
     synthesis_prompt = f"""You are building a personality model for an AI twin. Your job is to deeply analyze everything provided and produce a structured JSON model that captures how this person THINKS and DECIDES — not just what they've done.
@@ -730,6 +821,7 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
 
     twin_data: Dict[str, Any] = {
         "twin_id": twin_id,
+        "user_id": user_id,
         "name": request.name,
         "title": request.title,
         "archetype_id": archetype_id,
