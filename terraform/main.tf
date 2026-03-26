@@ -39,6 +39,24 @@ resource "aws_s3_bucket_ownership_controls" "memory" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "memory" {
+  bucket = aws_s3_bucket.memory.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_versioning" "memory" {
+  bucket = aws_s3_bucket.memory.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 # S3 bucket for frontend static website
 resource "aws_s3_bucket" "frontend" {
   bucket = "${local.name_prefix}-frontend-${data.aws_caller_identity.current.account_id}"
@@ -52,6 +70,17 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   block_public_policy     = false
   ignore_public_acls      = false
   restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+    bucket_key_enabled = true
+  }
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
@@ -109,14 +138,53 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_bedrock" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
   role       = aws_iam_role.lambda_role.name
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_s3" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
-  role       = aws_iam_role.lambda_role.name
+resource "aws_iam_role_policy" "lambda_bedrock" {
+  name = "${local.name_prefix}-lambda-bedrock"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ]
+        Resource = "arn:aws:bedrock:*::foundation-model/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_s3" {
+  name = "${local.name_prefix}-lambda-s3"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.memory.arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.memory.arn
+      }
+    ]
+  })
 }
 
 # Lambda function
@@ -140,6 +208,10 @@ resource "aws_lambda_function" "api" {
     }
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   # Ensure Lambda waits for the distribution to exist
   depends_on = [aws_cloudfront_distribution.main]
 }
@@ -152,10 +224,13 @@ resource "aws_apigatewayv2_api" "main" {
 
   cors_configuration {
     allow_credentials = false
-    allow_headers     = ["*"]
+    allow_headers     = ["Content-Type", "Authorization", "X-Requested-With"]
     allow_methods     = ["GET", "POST", "OPTIONS"]
-    allow_origins     = ["*"]
-    max_age           = 300
+    allow_origins = var.use_custom_domain ? [
+      "https://${var.root_domain}",
+      "https://www.${var.root_domain}"
+    ] : ["*"]
+    max_age = 300
   }
 }
 
