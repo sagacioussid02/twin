@@ -391,7 +391,13 @@ def load_conversation(session_id: str) -> List[Dict]:
             with open(file_path, "r") as f:
                 raw = json.load(f)
         else:
-            return []
+            # Fallback: check legacy flat path (pre-sessions/ prefix)
+            legacy_path = os.path.join(MEMORY_DIR, f"{session_id}.json")
+            if os.path.exists(legacy_path):
+                with open(legacy_path, "r") as f:
+                    raw = json.load(f)
+            else:
+                return []
 
     # Support both legacy list format and current dict format
     if isinstance(raw, list):
