@@ -46,7 +46,9 @@ cd ..
 #
 # By default the frontend is deployed via Vercel (connected to the main branch).
 # To deploy to S3/CloudFront instead, set DEPLOY_FRONTEND_S3=true before running
-# this script. Note: requires next.config.ts to have output: "export" enabled.
+# this script. The S3/CloudFront path assumes your Next.js build outputs static
+# assets to frontend/out/ (for example, by configuring next.config.ts or the
+# build command to produce a static export).
 #
 # Example:
 #   DEPLOY_FRONTEND_S3=true ./scripts/deploy.sh prod
