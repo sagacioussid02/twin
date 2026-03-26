@@ -375,6 +375,18 @@ class CreateTwinRequest(BaseModel):
         return v
 
 
+# Valid session_id shapes:
+#   - UUID4 from str(uuid.uuid4()): xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#   - 64-char hex from HMAC-SHA256 / SHA-256 _derive_session_id
+_SESSION_ID_RE = re.compile(r'^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64})$')
+
+
+def _validate_session_id(session_id: str) -> None:
+    """Raise 400 if session_id doesn't match the allowed format, preventing path traversal."""
+    if not _SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
+
+
 # Memory management functions
 def get_memory_path(session_id: str) -> str:
     return f"sessions/{session_id}.json"
@@ -382,6 +394,7 @@ def get_memory_path(session_id: str) -> str:
 
 def load_conversation(session_id: str) -> List[Dict]:
     """Load conversation history from storage. Handles legacy list format and current dict format."""
+    _validate_session_id(session_id)
     if USE_S3:
         try:
             response = s3_client.get_object(Bucket=S3_BUCKET, Key=get_memory_path(session_id))
@@ -399,13 +412,19 @@ def load_conversation(session_id: str) -> List[Dict]:
             else:
                 raise
     else:
-        file_path = os.path.join(MEMORY_DIR, get_memory_path(session_id))
+        sessions_dir = os.path.realpath(os.path.join(MEMORY_DIR, "sessions"))
+        file_path = os.path.realpath(os.path.join(sessions_dir, f"{session_id}.json"))
+        if not file_path.startswith(sessions_dir + os.sep):
+            raise HTTPException(status_code=400, detail="Invalid session ID format")
         if os.path.exists(file_path):
             with open(file_path, "r") as f:
                 raw = json.load(f)
         else:
             # Fallback: check legacy flat path (pre-sessions/ prefix)
-            legacy_path = os.path.join(MEMORY_DIR, f"{session_id}.json")
+            memory_dir_real = os.path.realpath(MEMORY_DIR)
+            legacy_path = os.path.realpath(os.path.join(MEMORY_DIR, f"{session_id}.json"))
+            if not legacy_path.startswith(memory_dir_real + os.sep):
+                raise HTTPException(status_code=400, detail="Invalid session ID format")
             if os.path.exists(legacy_path):
                 with open(legacy_path, "r") as f:
                     raw = json.load(f)
@@ -425,6 +444,7 @@ def save_conversation(
     twin_owner_id: Optional[str] = None,
 ):
     """Save conversation history with owner metadata for future access-control migration."""
+    _validate_session_id(session_id)
     data: Any = {
         "session_id": session_id,
         "chatter_id": chatter_id,       # authenticated user who is chatting (None = anonymous)
@@ -439,8 +459,11 @@ def save_conversation(
             ContentType="application/json",
         )
     else:
-        os.makedirs(os.path.join(MEMORY_DIR, "sessions"), exist_ok=True)
-        file_path = os.path.join(MEMORY_DIR, get_memory_path(session_id))
+        sessions_dir = os.path.realpath(os.path.join(MEMORY_DIR, "sessions"))
+        os.makedirs(sessions_dir, exist_ok=True)
+        file_path = os.path.realpath(os.path.join(sessions_dir, f"{session_id}.json"))
+        if not file_path.startswith(sessions_dir + os.sep):
+            raise HTTPException(status_code=400, detail="Invalid session ID format")
         with open(file_path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -550,8 +573,9 @@ def _derive_session_id(chatter_id: str, twin_id: str) -> str:
             f"{chatter_id}:{twin_id}".encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-    # Dev fallback — deterministic but not secret-protected
-    return f"{chatter_id}-{twin_id}"
+    # Dev fallback — no secret, but still produces a valid 64-char hex so the
+    # session_id passes format validation. Not safe for production (predictable).
+    return hashlib.sha256(f"{chatter_id}:{twin_id}".encode("utf-8")).hexdigest()
 
 
 @app.post("/chat", response_model=ChatResponse)
