@@ -78,16 +78,17 @@ function TwinChat() {
         body: JSON.stringify({
           message: input,
           twin_id: id,
-          // Always send session_id when available to maintain continuity for
-          // anonymous sessions. For authenticated users, the backend derives a
-          // stable session from their identity + twin_id and may reject the
-          // request if token validation fails rather than falling back to this.
-          ...(sessionId ? { session_id: sessionId } : {}),
+          // For anonymous sessions, send session_id to maintain continuity.
+          // Authenticated users get a stable server-derived session keyed by
+          // their identity + twin_id, so omit the client session_id for them.
+          ...(!isSignedIn && sessionId ? { session_id: sessionId } : {}),
         }),
       });
       if (!res.ok) throw new Error('Failed to send');
       const data = await res.json();
-      if (!sessionId) setSessionId(data.session_id);
+      // Only track session_id for anonymous users; authenticated sessions are
+      // fully managed server-side and don't need a client-held session_id.
+      if (!isSignedIn && !sessionId) setSessionId(data.session_id);
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',

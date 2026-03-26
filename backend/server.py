@@ -376,7 +376,8 @@ class CreateTwinRequest(BaseModel):
 
 
 # Valid session_id shapes:
-#   - UUID4 from str(uuid.uuid4()): xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#   - UUID (any version) from str(uuid.uuid4()): xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#     Note: the regex accepts any lowercase hex UUID, not only v4.
 #   - 64-char hex from HMAC-SHA256 / SHA-256 _derive_session_id
 _SESSION_ID_RE = re.compile(r'^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64})$')
 
