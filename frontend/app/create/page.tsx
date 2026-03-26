@@ -216,11 +216,15 @@ export default function CreatePage() {
     setSubmitError('');
     try {
       const token = await getToken();
+      if (!token) {
+        router.push('/sign-in');
+        return;
+      }
       const res = await fetch(`${API}/create-twin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: form.name,
