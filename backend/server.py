@@ -562,10 +562,11 @@ def _derive_session_id(chatter_id: str, twin_id: str) -> str:
     """Return an opaque, stable session key for an authenticated user + twin pair.
 
     HMAC-SHA256 of 'chatter_id:twin_id' with SESSION_HMAC_SECRET makes the key
-    non-guessable even if both IDs are known, preventing enumeration of
-    conversation history via the public /conversation endpoint.
-    Falls back to raw concatenation only when the secret is not configured
-    (local dev without env var set).
+    non-guessable even if both IDs are known. This keeps session identifiers
+    opaque for authenticated callers (e.g. when fetching /conversation/{session_id})
+    and avoids leaking information about underlying user or twin IDs.
+    Falls back to SHA-256 without a secret when SESSION_HMAC_SECRET is not set
+    (local development only) — preserves stability and format validity but not secrecy.
     """
     if SESSION_HMAC_SECRET:
         return hmac.new(
