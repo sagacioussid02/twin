@@ -357,7 +357,7 @@ def call_bedrock(
             raise HTTPException(status_code=403, detail="Access denied to Bedrock model")
         else:
             print(f"Bedrock error: {e}")
-            raise HTTPException(status_code=500, detail=f"Bedrock error: {str(e)}")
+            raise HTTPException(status_code=500, detail="AI service error")
 
 
 @app.get("/")
@@ -452,7 +452,7 @@ async def chat(request: ChatRequest):
         raise
     except Exception as e:
         print(f"Error in chat endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/conversation/{session_id}")
@@ -602,7 +602,8 @@ If a field cannot be determined, use an empty string. Return only the JSON, no o
     except HTTPException:
         raise
     except ClientError as e:
-        raise HTTPException(status_code=500, detail=f"Bedrock error: {str(e)}")
+        print(f"Bedrock error in parse-linkedin: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process LinkedIn profile")
 
 
 @app.get("/twin/{twin_id}")
