@@ -55,7 +55,7 @@ function TwinChat({ twinId, twinName }: Props) {
         body: JSON.stringify({
           message: input,
           twin_id: twinId,
-          ...(token ? {} : { session_id: sessionId || undefined }),
+          ...(sessionId ? { session_id: sessionId } : {}),
         }),
       });
 

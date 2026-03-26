@@ -75,12 +75,14 @@ function TwinChat() {
       const res = await fetch(`${API}/chat`, {
         method: 'POST',
         headers,
-        // Authenticated users: omit session_id — backend derives stable key from identity + twin_id.
-        // Anonymous users: send session_id so within-session memory works.
         body: JSON.stringify({
           message: input,
           twin_id: id,
-          ...(token ? {} : { session_id: sessionId || undefined }),
+          // Always send session_id when available so the backend can fall back
+          // to it if token validation fails (expired, JWKS misconfig, etc.),
+          // preserving within-page continuity. Backend ignores it when it
+          // successfully derives a stable authenticated session key.
+          ...(sessionId ? { session_id: sessionId } : {}),
         }),
       });
       if (!res.ok) throw new Error('Failed to send');
