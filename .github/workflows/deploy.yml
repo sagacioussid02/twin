@@ -74,6 +74,7 @@ jobs:
         env:
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           TF_VAR_clerk_jwks_url: ${{ secrets.CLERK_JWKS_URL }}
+          TF_VAR_session_hmac_secret: ${{ secrets.SESSION_HMAC_SECRET }}
           
       - name: Deployment Summary
         working-directory: ./terraform
