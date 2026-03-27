@@ -1099,14 +1099,16 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
 # Default kept at 2 to stay safely within the API Gateway 30s hard timeout —
 # 4 sequential Bedrock calls at ~5-7s each ≈ 20-28s, leaving a safety margin.
 # Set DEBATE_ROUNDS=3 via env var to enable 3 rounds (6 calls, ~24-30s — slim margin).
-# To avoid easy misconfiguration that would almost certainly exceed 30s,
-# DEBATE_ROUNDS is hard-capped at 3 here. If you need more rounds, you must
-# first revisit latency assumptions and timeout settings end-to-end.
+# Default kept at 3 to match the frontend NEXT_PUBLIC_DEBATE_ROUNDS default
+# (3 rounds, 6 total Bedrock calls). This can bring total latency close to
+# the API Gateway 30s hard timeout (6 calls at ~5-7s each ≈ 30-42s).
+# If you observe timeouts, lower DEBATE_ROUNDS to 2 via env var to stay more
+# safely within the timeout (4 calls, ~20-28s total).
 # NOTE: This does NOT govern /debate/turn (turn-by-turn). That endpoint handles
 # a single turn per request; the number of turns is driven entirely by the
 # frontend's NEXT_PUBLIC_DEBATE_ROUNDS env var (default 3). Both env vars
 # should be set to the same value to keep the two debate modes consistent.
-_DEBATE_ROUNDS_DEFAULT = 2
+_DEBATE_ROUNDS_DEFAULT = 3
 _DEBATE_ROUNDS_MIN = 1
 _DEBATE_ROUNDS_MAX = 3
 _debate_rounds_raw = os.getenv("DEBATE_ROUNDS", "").strip()
