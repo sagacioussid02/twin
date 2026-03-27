@@ -2,7 +2,7 @@
 
 import { useUser, useAuth, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { Plus, MessageSquare, ExternalLink } from "lucide-react";
+import { Plus, MessageSquare, ExternalLink, Swords } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -64,7 +64,14 @@ export default function DashboardPage() {
           </div>
           <span className="font-semibold text-gray-800">AI Twin</span>
         </div>
-        <UserButton />
+        <div className="flex items-center gap-4">
+          <Link href="/debate"
+            className="flex items-center gap-1.5 text-sm text-purple-600 hover:text-purple-800 font-medium">
+            <Swords className="w-4 h-4" />
+            Debate
+          </Link>
+          <UserButton />
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">

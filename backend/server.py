@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 from pathlib import Path
 from pypdf import PdfReader
 import io
+import asyncio
 import hmac
 import hashlib
 import httpx
@@ -1087,6 +1088,168 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
             json.dump(twin_data, f, indent=2)
 
     return {"twin_id": twin_id, "personality_model": personality_model}
+
+
+# ---------------------------------------------------------------------------
+# Persona vs Persona debate
+# ---------------------------------------------------------------------------
+
+# Each twin speaks this many times (total turns = DEBATE_ROUNDS * 2).
+DEBATE_ROUNDS = 3
+
+
+class DebateAgent:
+    """Autonomous agent representing a single twin in a structured debate.
+
+    Each agent maintains its own conversation history so it has independent,
+    persona-consistent context across the exchange without seeing the other
+    twin's internal state.
+    """
+
+    def __init__(self, twin_data: dict) -> None:
+        self.twin_id: str = twin_data["twin_id"]
+        self.name: str = twin_data.get("name", "Unknown")
+        self.title: str = twin_data.get("title", "")
+        personality_model = twin_data.get("personality_model", {})
+        self._system_prompt: str = prompt(
+            personality_model=personality_model,
+            twin_name=self.name,
+            twin_title=self.title,
+        )
+        self._history: List[Dict] = []  # agent's own view of the debate
+
+    def _build_messages(self, user_turn: str) -> List[Dict]:
+        messages: List[Dict] = [
+            {"role": "user", "content": [{"text": f"System: {self._system_prompt}"}]}
+        ]
+        for msg in self._history[-10:]:  # cap at last 5 exchanges each way
+            messages.append({"role": msg["role"], "content": [{"text": msg["content"]}]})
+        messages.append({"role": "user", "content": [{"text": user_turn}]})
+        return messages
+
+    def respond(self, user_turn: str) -> str:
+        """Call Bedrock synchronously, update internal history, return response text.
+
+        Designed to be called via asyncio.to_thread so it doesn't block the
+        event loop during the debate orchestration.
+        """
+        messages = self._build_messages(user_turn)
+        response = bedrock_client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=messages,
+            inferenceConfig={"maxTokens": 400, "temperature": 0.75, "topP": 0.9},
+        )
+        text: str = response["output"]["message"]["content"][0]["text"]
+        self._history.append({"role": "user", "content": user_turn})
+        self._history.append({"role": "assistant", "content": text})
+        return text
+
+
+class DebateRequest(BaseModel):
+    twin_id_a: str
+    twin_id_b: str
+    topic: str
+
+    @field_validator("topic")
+    @classmethod
+    def topic_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("topic must not be empty")
+        if len(v) > 500:
+            raise ValueError("topic must be 500 characters or fewer")
+        return v
+
+
+class DebateTurn(BaseModel):
+    twin_id: str
+    twin_name: str
+    turn_number: int
+    text: str
+
+
+class DebateResponse(BaseModel):
+    topic: str
+    turns: List[DebateTurn]
+
+
+@app.post("/chat/debate", response_model=DebateResponse)
+async def debate(
+    request: DebateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Run a structured debate between two user-owned twins.
+
+    Each twin is instantiated as an independent DebateAgent with its own
+    persona and conversation context. The orchestrator alternates calls for
+    DEBATE_ROUNDS rounds (each twin speaks DEBATE_ROUNDS times = 2×DEBATE_ROUNDS
+    total turns).
+
+    Note: responses are buffered and returned as a single JSON payload.
+    True token-level streaming requires Lambda Function URL response streaming
+    and is a planned future upgrade.
+    """
+    # Load and authorise both twins — only owner may use their twins in a debate
+    twin_a_data = load_twin(request.twin_id_a)
+    twin_b_data = load_twin(request.twin_id_b)
+
+    if not twin_a_data or twin_a_data.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Twin A not found")
+    if not twin_b_data or twin_b_data.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Twin B not found")
+    if request.twin_id_a == request.twin_id_b:
+        raise HTTPException(status_code=400, detail="Debate requires two different twins")
+
+    agent_a = DebateAgent(twin_a_data)
+    agent_b = DebateAgent(twin_b_data)
+
+    turns: List[Dict] = []
+    last_text = ""
+
+    try:
+        for round_num in range(DEBATE_ROUNDS):
+            # ── Agent A's turn ────────────────────────────────────────────
+            if round_num == 0:
+                prompt_a = (
+                    f'You are debating {agent_b.name} on the topic: "{request.topic}". '
+                    f"Open with your perspective. Be direct and speak in your natural voice. "
+                    f"Keep it to 3-5 sentences."
+                )
+            else:
+                prompt_a = (
+                    f'{agent_b.name} said: "{last_text}"\n\n'
+                    f"Respond to their point in the debate. Stay in character. "
+                    f"Keep it to 3-5 sentences."
+                )
+            response_a = await asyncio.to_thread(agent_a.respond, prompt_a)
+            turns.append({"twin_id": agent_a.twin_id, "twin_name": agent_a.name,
+                          "turn_number": len(turns) + 1, "text": response_a})
+            last_text = response_a
+
+            # ── Agent B's turn ────────────────────────────────────────────
+            if round_num == 0:
+                prompt_b = (
+                    f'You are debating {agent_a.name} on the topic: "{request.topic}". '
+                    f'{agent_a.name} just said: "{response_a}"\n\n'
+                    f"Respond with your perspective. Be direct and speak in your natural voice. "
+                    f"Keep it to 3-5 sentences."
+                )
+            else:
+                prompt_b = (
+                    f'{agent_a.name} said: "{last_text}"\n\n'
+                    f"Respond to their point in the debate. Stay in character. "
+                    f"Keep it to 3-5 sentences."
+                )
+            response_b = await asyncio.to_thread(agent_b.respond, prompt_b)
+            turns.append({"twin_id": agent_b.twin_id, "twin_name": agent_b.name,
+                          "turn_number": len(turns) + 1, "text": response_b})
+            last_text = response_b
+
+    except ClientError as e:
+        print(f"Bedrock error in debate: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate debate response")
+
+    return {"topic": request.topic, "turns": turns}
 
 
 if __name__ == "__main__":
