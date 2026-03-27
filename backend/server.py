@@ -1545,14 +1545,19 @@ async def onboard_message(
         )
         raw = response["output"]["message"]["content"][0]["text"].strip()
 
-        # Strip markdown code fences if model wraps the JSON
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.MULTILINE)
-            raw = re.sub(r"\n?```$", "", raw.strip())
+        # Use robust JSON extraction to handle any leading/trailing text or code fences
+        data = _extract_json_object(raw)
 
-        data = json.loads(raw)
+       .if data is None:
+            # Mirror json.loads failure handling
+            raise json.JSONDecodeError("No JSON object found in model output", raw, 0)
+
+        if not isinstance(data, dict) or "message" not in data:
+            # Parsed, but not in the expected onboarding JSON shape
+            raise ValueError("Invalid onboarding JSON structure")
+
         return data
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
