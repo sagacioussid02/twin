@@ -1148,9 +1148,10 @@ class DebateAgent:
         return text
 
 
-# Derived from DEBATE_ROUNDS so the cap scales automatically when rounds are
-# reconfigured via env var (matching frontend NEXT_PUBLIC_DEBATE_ROUNDS).
-_MAX_HISTORY_ENTRIES = DEBATE_ROUNDS * 2 + 4  # all expected turns + small buffer
+# Maximum allowed number of history entries for /debate/turn.
+# Intentionally decoupled from DEBATE_ROUNDS / frontend NEXT_PUBLIC_DEBATE_ROUNDS
+# so config drift cannot cause mid-debate 422s. Can be overridden via env var.
+_MAX_HISTORY_ENTRIES = int(os.getenv("DEBATE_MAX_HISTORY_ENTRIES", "40"))
 _MAX_TWIN_NAME_LEN = 100
 _MAX_HISTORY_TEXT_LEN = 2000
 
