@@ -1177,6 +1177,8 @@ try:
     _MAX_HISTORY_ENTRIES = int(os.getenv("DEBATE_MAX_HISTORY_ENTRIES", "20"))
 except (TypeError, ValueError):
     _MAX_HISTORY_ENTRIES = 20
+if _MAX_HISTORY_ENTRIES < 1:
+    _MAX_HISTORY_ENTRIES = 1
 _MAX_TWIN_NAME_LEN = 100
 # 1000 chars per entry: generous for 3-5 sentences (~300-500 chars typical).
 _MAX_HISTORY_TEXT_LEN = 1000
