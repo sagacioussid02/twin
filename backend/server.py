@@ -1109,6 +1109,8 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
 # frontend's NEXT_PUBLIC_DEBATE_ROUNDS env var (default 3). Both env vars
 # should be set to the same value to keep the two debate modes consistent.
 _DEBATE_ROUNDS_DEFAULT = 3
+# should be set to the same value to keep the two debate modes consistent.
+_DEBATE_ROUNDS_DEFAULT = 3
 _DEBATE_ROUNDS_MIN = 1
 _DEBATE_ROUNDS_MAX = 3
 _debate_rounds_raw = os.getenv("DEBATE_ROUNDS", "").strip()
