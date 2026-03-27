@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { Swords, ArrowLeft, Loader2 } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const TOTAL_TURNS = 6; // 3 rounds × 2 agents
+const DEBATE_ROUNDS = Number(process.env.NEXT_PUBLIC_DEBATE_ROUNDS ?? '3');
+const TURNS_PER_ROUND = 2; // number of agents
+const TOTAL_TURNS = DEBATE_ROUNDS * TURNS_PER_ROUND;
 const TYPEWRITER_MS = 18; // ms per character
 
 interface Twin {
