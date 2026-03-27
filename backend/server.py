@@ -850,7 +850,8 @@ Extract the following fields and return ONLY a valid JSON object with these exac
 If a field cannot be determined, use an empty string. Return only the JSON, no other text."""
 
     try:
-        response = bedrock_client.converse(
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
             modelId=BEDROCK_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": extract_prompt}]}],
             inferenceConfig={"maxTokens": 1500, "temperature": 0.2},
@@ -859,7 +860,8 @@ If a field cannot be determined, use an empty string. Return only the JSON, no o
 
         try:
             parsed = _extract_json_object(response_text)
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"JSON extraction failed in parse-linkedin: {exc}\nRaw response: {response_text[:500]}")
             raise HTTPException(status_code=500, detail="Could not parse AI response as JSON")
 
         # Detect archetype from title
@@ -872,7 +874,10 @@ If a field cannot be determined, use an empty string. Return only the JSON, no o
     except HTTPException:
         raise
     except ClientError as e:
-        print(f"Bedrock error in parse-linkedin: {str(e)}")
+        print(f"Bedrock ClientError in parse-linkedin: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process LinkedIn profile")
+    except Exception as e:
+        print(f"Unexpected error in parse-linkedin: {e}")
         raise HTTPException(status_code=500, detail="Failed to process LinkedIn profile")
 
 
@@ -1551,6 +1556,7 @@ async def onboard_message(
 
         return data
     except (ValueError, json.JSONDecodeError):
+        # Return raw text as message so the UI stays unblocked
         return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
