@@ -1,773 +1,407 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import type { ChangeEvent } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Check, Upload, Loader2, Sparkles, ChevronDown } from 'lucide-react';
-
-interface FormData {
-  // Step 1 — Basic Info
-  name: string;
-  title: string;
-  bio: string;
-  email: string;
-  // Step 2 — Skills & Experience
-  skills: string;
-  experience: string;
-  achievements: string;
-  // Step 3 — Values & Decisions
-  coreValues: string;
-  decisionStyle: string;
-  riskTolerance: string;
-  pastDecisions: string;
-  // Step 4 — Voice & Style
-  communicationStyle: string;
-  writingSamples: string;
-  blindSpots: string;
-  // Personality
-  archetype_id: string;
-  responseStyle: 'concise' | 'balanced' | 'detailed';
-  verbalQuirks: string;
-}
-
-interface Archetype {
-  id: string;
-  display_name: string;
-}
-
-const PRESET_QUIRKS = [
-  "Always starts with 'So here's the thing...'",
-  "Says 'at the end of the day' a lot",
-  "Asks 'what's the worst case?' before agreeing",
-  "Thinks out loud before landing on an answer",
-  "Short sentences. No fluff.",
-  "Uses analogies to explain technical things",
-  "Ends with 'does that make sense?'",
-  "Brings everything back to first principles",
-  "Says 'I don't know' openly when uncertain",
-  "Prefers bullet points over paragraphs",
-  "Steelmans the opposing view before arguing",
-  "Uses 'to be fair' as a filler",
-  "Never uses exclamation marks",
-  "Starts questions with 'Curious —'",
-  "Challenges assumptions before answering",
-  "Uses 'the thing is...' a lot",
-];
-
-const STEPS = [
-  { id: 1, label: 'Basic Info' },
-  { id: 2, label: 'Experience' },
-  { id: 3, label: 'Values & Decisions' },
-  { id: 4, label: 'Voice & Style' },
-  { id: 5, label: 'Done' },
-];
-
-const TOTAL_CONTENT_STEPS = 4;
-
-const SAMPLES: Partial<FormData>[] = [
-  // Step 1
-  {
-    name: 'Alex Rivera',
-    title: 'Staff Engineer at Stripe',
-    bio: "I've spent 12 years building payment infrastructure and developer tools. Started as a backend engineer, moved into platform and now lead a team of 15. I care deeply about developer experience and making complex systems feel simple.",
-    email: 'alex@example.com',
-  },
-  // Step 2
-  {
-    skills: 'Distributed systems, Go, Rust, Kubernetes, API design, Technical leadership, System design interviews',
-    experience: "- Stripe (2019–now): Staff Eng on Payments Platform, led migration of core charge flow to new infra handling $500B/yr\n- Lyft (2016–2019): Senior Eng, built real-time pricing engine from scratch\n- IBM (2013–2016): Backend engineer on Watson APIs",
-    achievements: "Reduced payment failure rate by 40% via retry logic redesign. Mentored 8 engineers who got promoted. Speaker at QCon 2022.",
-  },
-  // Step 3
-  {
-    coreValues: "- Simplicity over cleverness: I'll delete 200 lines before I add 10\n- Disagree and commit: I voice concerns once, clearly, then fully back the decision\n- Skin in the game: I won't ask my team to do something I haven't done or won't do",
-    decisionStyle: "I write out the decision in one paragraph as if explaining to a smart friend. If I can't explain it clearly, I don't understand it well enough yet. I distinguish between reversible and irreversible decisions — fast on reversible, slow on irreversible. I distrust decisions made in meetings.",
-    riskTolerance: 'medium',
-    pastDecisions: "In 2021 I passed on a VP role at a Series B startup offering 3x my salary. The team was strong but the problem space felt like a solution looking for a problem. I stayed at Stripe. Six months later the startup pivoted twice and laid off half the team.",
-  },
-  // Step 4
-  {
-    communicationStyle: "Direct but not harsh. I use short sentences in writing. I over-explain in diagrams. I ask 'what problem are we solving?' a lot — sometimes annoyingly. I prefer async written communication over meetings.",
-    writingSamples: 'https://alexrivera.dev/blog/on-simplicity',
-    blindSpots: "I underestimate how long non-technical work takes (stakeholder alignment, legal review). I can be impatient with process. I sometimes optimize for technical elegance when 'good enough' would ship faster.",
-  },
-];
-
-const empty: FormData = {
-  name: '', title: '', bio: '', email: '',
-  skills: '', experience: '', achievements: '',
-  coreValues: '', decisionStyle: '', riskTolerance: '', pastDecisions: '',
-  communicationStyle: '', writingSamples: '', blindSpots: '',
-  archetype_id: '',
-  responseStyle: 'balanced',
-  verbalQuirks: '',
-};
+import { Send, Paperclip, Loader2, Check } from 'lucide-react';
+import Link from 'next/link';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const inputClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800";
-const textareaClass = `${inputClass} resize-none`;
-
-interface PersonalityModel {
-  personality_summary?: string;
-  decision_framework?: string;
-  core_values?: string[];
-  decision_heuristics?: string[];
-  [key: string]: unknown;
+interface Message {
+  role: 'ai' | 'user' | 'status';
+  content: string;
 }
+
+interface ApiHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface FieldUpdates {
+  name?: string;
+  title?: string;
+  bio?: string;
+  skills?: string;
+  experience?: string;
+  achievements?: string;
+  coreValues?: string;
+  decisionStyle?: string;
+  riskTolerance?: string;
+  pastDecisions?: string;
+  communicationStyle?: string;
+  blindSpots?: string;
+  verbalQuirks?: string;
+  responseStyle?: string;
+  archetype_id?: string | null;
+  [key: string]: string | null | undefined;
+}
+
+type Phase = 'loading' | 'chat' | 'creating' | 'done';
 
 export default function CreatePage() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [form, setForm] = useState<FormData>(empty);
+
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [apiHistory, setApiHistory] = useState<ApiHistoryItem[]>([]);
+  const [fieldsCollected, setFieldsCollected] = useState<FieldUpdates>({});
+  const [topicsCovered, setTopicsCovered] = useState<string[]>([]);
+  const [linkedinParsed, setLinkedinParsed] = useState<Record<string, unknown> | null>(null);
+
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const [parsing, setParsing] = useState(false);
-  const [parseError, setParseError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [twinResult, setTwinResult] = useState<{ twin_id: string; personality_model: PersonalityModel } | null>(null);
-  const [archetypes, setArchetypes] = useState<Archetype[]>([]);
-  const [detectedArchetype, setDetectedArchetype] = useState<string | null>(null);
-  const [archetypeAutoDetected, setArchetypeAutoDetected] = useState(false);
-  const [showArchetypeDropdown, setShowArchetypeDropdown] = useState(false);
-  const [selectedQuirks, setSelectedQuirks] = useState<Set<string>>(new Set());
+  const [createError, setCreateError] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    return () => {
-      if (redirectTimeoutRef.current !== null) {
-        clearTimeout(redirectTimeoutRef.current);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, sending]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
+
+  // Fetch opening message on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function init() {
+      try {
+        const token = await getToken();
+        if (!token) { router.push('/sign-in'); return; }
+        const res = await fetch(`${API}/onboard/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ history: [], fields_collected: {}, topics_covered: [] }),
+        });
+        if (!res.ok) throw new Error('start failed');
+        const data = await res.json();
+        if (cancelled) return;
+        setMessages([{ role: 'ai', content: data.message }]);
+        if (data.field_updates) setFieldsCollected(prev => ({ ...prev, ...data.field_updates }));
+        if (data.topics_covered) setTopicsCovered(data.topics_covered);
+      } catch {
+        if (cancelled) return;
+        // Fallback opening so the page is never blank
+        setMessages([{
+          role: 'ai',
+          content: "Hey! Let's build your AI twin. Before we dive in — got your LinkedIn PDF? I can read it and skip the professional background questions. Hit the 📎 below to attach, or just type skip to go from scratch.",
+        }]);
+      } finally {
+        if (!cancelled) setPhase('chat');
       }
-    };
-  }, []);
+    }
+    init();
+    return () => { cancelled = true; };
+  }, [getToken, router]);
 
-  const toggleQuirk = (quirk: string) =>
-    setSelectedQuirks(prev => {
-      const next = new Set(prev);
-      next.has(quirk) ? next.delete(quirk) : next.add(quirk);
-      return next;
-    });
+  async function callOnboard(
+    newApiHistory: ApiHistoryItem[],
+    fields: FieldUpdates,
+    topics: string[],
+    linkedin: Record<string, unknown> | null,
+    token: string,
+  ) {
+    setSending(true);
+    try {
+      const res = await fetch(`${API}/onboard/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          history: newApiHistory,
+          linkedin_parsed: linkedin,
+          fields_collected: fields,
+          topics_covered: topics,
+        }),
+      });
+      if (!res.ok) throw new Error('response failed');
+      const data = await res.json();
 
-  useEffect(() => {
-    fetch(`${API}/archetypes`)
-      .then(r => r.json())
-      .then(d => setArchetypes(d.archetypes || []))
-      .catch(() => {});
-  }, []);
+      const updatedFields: FieldUpdates = { ...fields, ...(data.field_updates || {}) };
+      const updatedTopics: string[] = data.topics_covered || topics;
 
-  const set = (field: keyof FormData) =>
-    (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
-      setForm(prev => ({ ...prev, [field]: e.target.value }));
+      setFieldsCollected(updatedFields);
+      setTopicsCovered(updatedTopics);
+      setMessages(prev => [...prev, { role: 'ai', content: data.message }]);
+      setApiHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
 
-  const handleLinkedInUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+      if (data.done && data.twin_payload) {
+        setPhase('creating');
+        await submitTwin(data.twin_payload, token);
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        content: "Sorry, something went wrong on my end. Could you repeat that?",
+      }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function submitTwin(payload: Record<string, unknown>, token: string) {
+    try {
+      const res = await fetch(`${API}/create-twin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { detail?: string }).detail || 'Failed to create twin');
+      }
+      setPhase('done');
+      setTimeout(() => router.push('/dashboard'), 2200);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create twin');
+      setPhase('chat');
+    }
+  }
+
+  async function sendMessage() {
+    const text = input.trim();
+    if (!text || sending || phase !== 'chat') return;
+    const token = await getToken();
+    if (!token) { router.push('/sign-in'); return; }
+
+    setInput('');
+    const newMsg: Message = { role: 'user', content: text };
+    const newApiItem: ApiHistoryItem = { role: 'user', content: text };
+    setMessages(prev => [...prev, newMsg]);
+    const newHistory = [...apiHistory, newApiItem];
+    setApiHistory(newHistory);
+
+    await callOnboard(newHistory, fieldsCollected, topicsCovered, linkedinParsed, token);
+  }
+
+  async function handleLinkedIn(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    const token = await getToken();
+    if (!token) { router.push('/sign-in'); return; }
+
     setParsing(true);
-    setParseError('');
-    setDetectedArchetype(null);
-    setArchetypeAutoDetected(false);
+    setMessages(prev => [...prev,
+      { role: 'user', content: '📎 LinkedIn PDF attached' },
+      { role: 'status', content: 'Reading your LinkedIn profile…' },
+    ]);
+
     try {
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch(`${API}/parse-linkedin`, { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Failed to parse PDF');
-      }
+      if (!res.ok) throw new Error('parse failed');
       const data = await res.json();
-      setForm(prev => ({
-        ...prev,
-        name: data.name || prev.name,
-        title: data.title || prev.title,
-        bio: data.bio || prev.bio,
-        skills: data.skills || prev.skills,
-        experience: data.experience || prev.experience,
-        achievements: data.achievements || prev.achievements,
-        communicationStyle: data.communicationStyle || prev.communicationStyle,
-        archetype_id: 'archetype_id' in data ? (data.archetype_id ?? '') : prev.archetype_id,
-      }));
-      if (data.archetype_id) {
-        setDetectedArchetype(data.archetype_display_name);
-        setArchetypeAutoDetected(true);
-      } else if ('archetype_id' in data) {
-        setDetectedArchetype(null);
-        setArchetypeAutoDetected(false);
-      }
-    } catch (err: unknown) {
-      setParseError(err instanceof Error ? err.message : 'Failed to parse PDF');
+
+      const parsedFields: FieldUpdates = {
+        name: data.name, title: data.title, bio: data.bio,
+        skills: data.skills, experience: data.experience, achievements: data.achievements,
+        archetype_id: data.archetype_id ?? null,
+      };
+      const newFields = { ...fieldsCollected, ...parsedFields };
+      setLinkedinParsed(data);
+      setFieldsCollected(newFields);
+
+      // Remove status bubble
+      setMessages(prev => prev.filter(m => m.role !== 'status'));
+
+      const attachMsg = '📎 LinkedIn PDF attached';
+      const newHistory: ApiHistoryItem[] = [...apiHistory, { role: 'user', content: attachMsg }];
+      setApiHistory(newHistory);
+      await callOnboard(newHistory, newFields, topicsCovered, data, token);
+    } catch {
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== 'status'),
+        { role: 'ai', content: "Hmm, had trouble reading that PDF. No worries — let's just go from scratch." },
+      ]);
     } finally {
       setParsing(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
-
-  const canAdvance = () => {
-    if (step === 1) return form.name.trim() && form.title.trim() && form.bio.trim();
-    if (step === 2) return form.skills.trim() && form.experience.trim();
-    if (step === 3) return form.coreValues.trim() && form.decisionStyle.trim();
-    if (step === 4) return form.communicationStyle.trim();
-    return true;
-  };
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    setSubmitError('');
-    try {
-      const token = await getToken();
-      if (!token) {
-        router.push('/sign-in');
-        return;
-      }
-      const res = await fetch(`${API}/create-twin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: form.name,
-          title: form.title,
-          bio: form.bio,
-          email: form.email,
-          skills: form.skills,
-          experience: form.experience,
-          achievements: form.achievements,
-          coreValues: form.coreValues,
-          decisionStyle: form.decisionStyle,
-          riskTolerance: form.riskTolerance,
-          pastDecisions: form.pastDecisions,
-          communicationStyle: form.communicationStyle,
-          writingSamples: form.writingSamples,
-          blindSpots: form.blindSpots,
-          archetype_id: form.archetype_id || null,
-          responseStyle: form.responseStyle,
-          verbalQuirks: [
-            ...[...selectedQuirks],
-            ...(form.verbalQuirks.trim() ? [form.verbalQuirks.trim()] : []),
-          ].join('\n'),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Failed to create twin');
-      }
-      const data = await res.json();
-      setTwinResult(data);
-      setStep(5);
-      redirectTimeoutRef.current = setTimeout(() => router.push('/dashboard'), 3000);
-    } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const selectedArchetypeName = archetypes.find(a => a.id === form.archetype_id)?.display_name;
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
-      <div className="container mx-auto px-4 py-12">
-        <div className="max-w-2xl mx-auto">
+    <main className="min-h-screen bg-gray-50 flex flex-col">
 
-          {/* Header */}
-          <div className="mb-8">
-            <a href="/" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-4">
-              <ArrowLeft className="w-4 h-4" /> Back to Sidd&apos;s Twin
-            </a>
-            <h1 className="text-3xl font-bold text-gray-800">Create Your AI Twin</h1>
-            <p className="text-gray-500 mt-1">
-              Your twin will answer &quot;What would I do?&quot; — so the more you share, the more accurate it gets.
-            </p>
+      {/* Top bar */}
+      <header className="bg-white border-b border-gray-200 px-5 py-3.5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-purple-600 rounded-lg flex items-center justify-center">
+            <span className="text-white text-xs font-bold">T</span>
           </div>
+          <span className="font-semibold text-gray-800 text-sm">Create your twin</span>
+        </div>
+        <Link
+          href="/create/form"
+          className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
+        >
+          Fill the form in detail instead →
+        </Link>
+      </header>
 
-          {/* Step indicators */}
-          <div className="flex items-center mb-8 overflow-x-auto pb-1">
-            {STEPS.map((s, i) => (
-              <div key={s.id} className="flex items-center shrink-0">
-                <div className="flex flex-col items-center gap-1">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                    step > s.id ? 'bg-purple-600 text-white' :
-                    step === s.id ? 'bg-purple-100 text-purple-700 border-2 border-purple-600' :
-                    'bg-gray-100 text-gray-400'
-                  }`}>
-                    {step > s.id ? <Check className="w-4 h-4" /> : s.id}
-                  </div>
-                  <span className={`text-xs whitespace-nowrap ${step === s.id ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
-                    {s.label}
+      {/* Chat area */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 max-w-2xl w-full mx-auto">
+        {phase === 'loading' && (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {messages.map((msg, i) => {
+            if (msg.role === 'status') {
+              return (
+                <div key={i} className="flex justify-center">
+                  <span className="text-xs text-gray-400 italic flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> {msg.content}
                   </span>
                 </div>
-                {i < STEPS.length - 1 && <div className="w-8 h-px bg-gray-200 mx-2 mb-4 shrink-0" />}
-              </div>
-            ))}
-          </div>
-
-          {/* Form card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-
-            {/* ── Step 1: Basic Info ── */}
-            {step === 1 && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-gray-800">Tell us about yourself</h2>
-                  <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[0] }))} className="text-xs text-purple-500 hover:text-purple-700 underline">Fill sample</button>
-                </div>
-
-                {/* LinkedIn PDF upload */}
-                <div className="border-2 border-dashed border-purple-200 rounded-lg p-4 bg-purple-50">
-                  <p className="text-sm font-medium text-purple-700 mb-1">Have a LinkedIn PDF? Auto-fill from it</p>
-                  <p className="text-xs text-gray-500 mb-3">
-                    LinkedIn → Me → View Profile → More → Save to PDF
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf"
-                    onChange={handleLinkedInUpload}
-                    disabled={parsing}
-                    className="hidden"
-                    id="linkedin-upload"
-                  />
-                  <label
-                    htmlFor="linkedin-upload"
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit ${
-                      parsing ? 'bg-purple-200 text-purple-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'
-                    }`}
-                  >
-                    {parsing ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Parsing...</>
-                    ) : (
-                      <><Upload className="w-4 h-4" /> Upload LinkedIn PDF</>
-                    )}
-                  </label>
-                  {parseError && <p className="text-xs text-red-500 mt-2">{parseError}</p>}
-
-                  {/* Archetype detection result */}
-                  {detectedArchetype && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                        <Sparkles className="w-3 h-3" />
-                        {archetypeAutoDetected ? 'Detected' : 'Archetype'}: {detectedArchetype}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowArchetypeDropdown(v => !v)}
-                        className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
-                      >
-                        change
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Archetype selector — shown when: no auto-detect, or user clicked change */}
-                {(showArchetypeDropdown || (!detectedArchetype && archetypes.length > 0)) && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Role Archetype <span className="text-gray-400 font-normal">(optional — shapes twin personality)</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.archetype_id}
-                        onChange={e => {
-                          set('archetype_id')(e);
-                          const chosen = archetypes.find(a => a.id === e.target.value);
-                          setDetectedArchetype(chosen?.display_name || null);
-                          setArchetypeAutoDetected(false);
-                          setShowArchetypeDropdown(false);
-                        }}
-                        className="w-full appearance-none px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 bg-white pr-10"
-                      >
-                        <option value="">Select a role archetype...</option>
-                        {archetypes.map(a => (
-                          <option key={a.id} value={a.id}>{a.display_name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
-                    </div>
-                    {selectedArchetypeName && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        The {selectedArchetypeName} archetype will shape your twin&apos;s personality and communication style.
-                      </p>
-                    )}
+              );
+            }
+            const isAi = msg.role === 'ai';
+            return (
+              <div key={i} className={`flex gap-3 ${isAi ? 'justify-start' : 'justify-end'}`}>
+                {isAi && (
+                  <div className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1">
+                    T
                   </div>
                 )}
-
-                <div>
-                  <label htmlFor="field-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-                  <input
-                    id="field-name"
-                    type="text"
-                    value={form.name}
-                    onChange={set('name')}
-                    placeholder="e.g. Jane Smith"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="field-title" className="block text-sm font-medium text-gray-700 mb-1">Professional Title *</label>
-                  <input
-                    id="field-title"
-                    type="text"
-                    value={form.title}
-                    onChange={set('title')}
-                    placeholder="e.g. Senior Software Engineer at Acme"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="field-bio" className="block text-sm font-medium text-gray-700 mb-1">Short Bio *</label>
-                  <textarea
-                    id="field-bio"
-                    value={form.bio}
-                    onChange={set('bio')}
-                    rows={4}
-                    placeholder="A few sentences about who you are, what you do, and what drives you..."
-                    className={textareaClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="field-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
-                  <input
-                    id="field-email"
-                    type="email"
-                    value={form.email}
-                    onChange={set('email')}
-                    placeholder="you@example.com"
-                    className={inputClass}
-                  />
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  isAi
+                    ? 'bg-white border border-gray-200 text-gray-800'
+                    : 'bg-purple-600 text-white'
+                }`}>
+                  {msg.content}
                 </div>
               </div>
-            )}
+            );
+          })}
 
-            {/* ── Step 2: Skills & Experience ── */}
-            {step === 2 && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-gray-800">Skills &amp; Experience</h2>
-                  <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[1] }))} className="text-xs text-purple-500 hover:text-purple-700 underline">Fill sample</button>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Key Skills *</label>
-                  <p className="text-xs text-gray-400 mb-1">The more specific, the better your twin&apos;s domain knowledge.</p>
-                  <textarea
-                    value={form.skills}
-                    onChange={set('skills')}
-                    rows={3}
-                    placeholder="e.g. Python, System Design, Product Strategy, ML infrastructure..."
-                    className={textareaClass}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Work Experience *</label>
-                  <p className="text-xs text-gray-400 mb-1">Roles you&apos;ve held and what you actually did there.</p>
-                  <textarea
-                    value={form.experience}
-                    onChange={set('experience')}
-                    rows={6}
-                    placeholder={"- Acme (2021–now): Led backend team, scaled API to 10M req/day\n- Startup X (2018–21): Built ML pipeline from scratch, hired first 5 engineers"}
-                    className={textareaClass}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notable Achievements</label>
-                  <p className="text-xs text-gray-400 mb-1">Things you&apos;re proud of — shipped, built, won, or learned.</p>
-                  <textarea
-                    value={form.achievements}
-                    onChange={set('achievements')}
-                    rows={3}
-                    placeholder="e.g. Published at NeurIPS, grew team from 3→20, open source project with 2k stars..."
-                    className={textareaClass}
-                  />
+          {/* AI typing indicator */}
+          {sending && (
+            <div className="flex gap-3 justify-start">
+              <div className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1">
+                T
+              </div>
+              <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3">
+                <div className="flex space-x-1.5 items-center h-4">
+                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* ── Step 3: Values & Decisions ── */}
-            {step === 3 && (
-              <div className="space-y-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-800">Values &amp; Decision-Making</h2>
-                    <p className="text-sm text-gray-500 mt-1">This is the core of your twin — how you think and what you stand for.</p>
-                  </div>
-                  <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[2] }))} className="text-xs text-purple-500 hover:text-purple-700 underline shrink-0 ml-4">Fill sample</button>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Core Values *</label>
-                  <p className="text-xs text-gray-400 mb-1">What principles guide your decisions? List 3–6 values and briefly explain each.</p>
-                  <textarea
-                    value={form.coreValues}
-                    onChange={set('coreValues')}
-                    rows={5}
-                    placeholder={"e.g.\n- Speed over perfection: ship fast, iterate\n- People first: I'll take a pay cut to work with great people\n- Ownership: I'd rather ask forgiveness than permission"}
-                    className={textareaClass}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">How you make decisions *</label>
-                  <p className="text-xs text-gray-400 mb-1">Walk us through your actual decision-making process.</p>
-                  <textarea
-                    value={form.decisionStyle}
-                    onChange={set('decisionStyle')}
-                    rows={4}
-                    placeholder={"e.g. I first identify what's reversible vs irreversible. For reversible decisions I move fast. For irreversible ones I sleep on it, write out pros/cons, and talk to one trusted person. I tend to be contrarian and distrust consensus..."}
-                    className={textareaClass}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Risk tolerance</label>
-                  <select value={form.riskTolerance} onChange={set('riskTolerance')} className={inputClass}>
-                    <option value="">Select one...</option>
-                    <option value="low">Low — I prefer certainty and proven paths</option>
-                    <option value="medium">Medium — calculated risks with clear upside</option>
-                    <option value="high">High — I&apos;d bet big if I believe in something</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">A hard decision you&apos;ve made</label>
-                  <p className="text-xs text-gray-400 mb-1">Describe 1–2 real choices — what the situation was, what you chose, and why. This teaches your twin your actual judgment.</p>
-                  <textarea
-                    value={form.pastDecisions}
-                    onChange={set('pastDecisions')}
-                    rows={5}
-                    placeholder={"e.g. In 2022 I turned down a $50k raise to join a 5-person startup. My reasoning: the equity upside was larger but more importantly I was stagnating and needed the forcing function of building from zero again. Regrets: none so far..."}
-                    className={textareaClass}
-                  />
-                </div>
+          {/* Creating state */}
+          {phase === 'creating' && (
+            <div className="flex justify-center py-4">
+              <div className="flex items-center gap-2 text-sm text-gray-500 bg-white border border-gray-200 rounded-full px-4 py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                Building your twin…
               </div>
-            )}
+            </div>
+          )}
 
-            {/* ── Step 4: Voice & Style ── */}
-            {step === 4 && (
-              <div className="space-y-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-800">Voice &amp; Style</h2>
-                    <p className="text-sm text-gray-500 mt-1">How your twin sounds and where its blind spots are.</p>
-                  </div>
-                  <button onClick={() => setForm(p => ({ ...p, ...SAMPLES[3] }))} className="text-xs text-purple-500 hover:text-purple-700 underline shrink-0 ml-4">Fill sample</button>
-                </div>
-
-                {/* Response style selector */}
-                <fieldset>
-                  <legend className="block text-sm font-medium text-gray-700 mb-2">Response length</legend>
-                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Response length">
-                    {([
-                      { value: 'concise', label: 'Concise', desc: '1–3 sentences' },
-                      { value: 'balanced', label: 'Balanced', desc: '3–6 sentences' },
-                      { value: 'detailed', label: 'Detailed', desc: 'Full explanation' },
-                    ] as const).map(opt => (
-                      <label
-                        key={opt.value}
-                        className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
-                          form.responseStyle === opt.value
-                            ? 'bg-purple-600 border-purple-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="responseStyle"
-                          value={opt.value}
-                          checked={form.responseStyle === opt.value}
-                          onChange={() => setForm(prev => ({ ...prev, responseStyle: opt.value }))}
-                          className="sr-only"
-                        />
-                        <div className="font-medium text-sm">{opt.label}</div>
-                        <div className={`text-xs mt-0.5 ${form.responseStyle === opt.value ? 'text-purple-200' : 'text-gray-400'}`}>{opt.desc}</div>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Communication style *</label>
-                  <p className="text-xs text-gray-400 mb-1">How do you actually talk and write? Be specific.</p>
-                  <textarea
-                    value={form.communicationStyle}
-                    onChange={set('communicationStyle')}
-                    rows={4}
-                    placeholder={"e.g. Direct, sometimes blunt. I use short sentences. I love analogies to explain complex things. I swear occasionally in casual settings. I ask a lot of 'why' questions. I hate small talk but will geek out for hours on a problem..."}
-                    className={textareaClass}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Writing samples or links</label>
-                  <p className="text-xs text-gray-400 mb-1">Paste URLs to your blog, tweets, LinkedIn posts, or essays — anything that captures your voice.</p>
-                  <textarea
-                    value={form.writingSamples}
-                    onChange={set('writingSamples')}
-                    rows={3}
-                    placeholder={"e.g.\nhttps://yourblog.com/post-about-ai\nhttps://x.com/you/status/...\nor paste a paragraph of your own writing here..."}
-                    className={textareaClass}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Blind spots &amp; biases</label>
-                  <p className="text-xs text-gray-400 mb-1">What are you bad at? What biases do you know you have? Honesty here makes your twin more accurate.</p>
-                  <textarea
-                    value={form.blindSpots}
-                    onChange={set('blindSpots')}
-                    rows={4}
-                    placeholder={"e.g. I tend to over-index on technical elegance and under-weight business reality. I'm impatient with slow decision-makers. I can be overly optimistic about timelines. I sometimes dismiss ideas from non-technical people too quickly..."}
-                    className={textareaClass}
-                  />
-                </div>
-
-                {/* Verbal quirks */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Verbal quirks <span className="text-gray-400 font-normal">(optional — select any that fit)</span>
-                  </label>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {PRESET_QUIRKS.map(quirk => (
-                      <button
-                        key={quirk}
-                        type="button"
-                        aria-pressed={selectedQuirks.has(quirk)}
-                        onClick={() => toggleQuirk(quirk)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors text-left ${
-                          selectedQuirks.has(quirk)
-                            ? 'bg-purple-600 text-white border-purple-600'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400 hover:text-purple-600'
-                        }`}
-                      >
-                        {quirk}
-                      </button>
-                    ))}
-                  </div>
-                  <textarea
-                    value={form.verbalQuirks}
-                    onChange={set('verbalQuirks')}
-                    rows={2}
-                    placeholder="Anything else specific to add..."
-                    className={`${textareaClass} text-sm`}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">The human fingerprint — small habits that make this person sound like themselves.</p>
-                </div>
+          {/* Done state */}
+          {phase === 'done' && (
+            <div className="flex justify-center py-4">
+              <div className="flex items-center gap-2 text-sm text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-4 py-2">
+                <Check className="w-4 h-4" />
+                Twin created! Redirecting to dashboard…
               </div>
-            )}
+            </div>
+          )}
 
-            {/* ── Step 5: Done ── */}
-            {step === 5 && (
-              <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Check className="w-8 h-8 text-purple-600" />
-                  </div>
-                  <h2 className="text-2xl font-semibold text-gray-800 mb-1">Your twin is ready!</h2>
-                  {twinResult && (
-                    <>
-                      {form.archetype_id && selectedArchetypeName && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium mb-3">
-                          <Sparkles className="w-3 h-3" />
-                          {selectedArchetypeName} personality
-                        </span>
-                      )}
-                      <div className="mt-2">
-                        <a
-                          href={`/twin?id=${twinResult.twin_id}`}
-                          className="inline-flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
-                        >
-                          Talk to your twin →
-                        </a>
-                      </div>
-                      <p className="text-gray-400 text-xs mt-2">Save this link — it&apos;s the only way back to your twin.</p>
-                    </>
-                  )}
-                </div>
+          {createError && (
+            <div className="text-center text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              {createError} —{' '}
+              <button
+                onClick={() => setCreateError('')}
+                className="underline hover:no-underline"
+              >
+                dismiss
+              </button>
+            </div>
+          )}
+        </div>
 
-                {twinResult && (
-                  <div className="border border-purple-100 rounded-lg bg-purple-50 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-purple-800">Personality Model Preview</p>
-                      <span className="text-xs text-gray-400 font-mono">ID: {twinResult.twin_id}</span>
-                    </div>
+        <div ref={bottomRef} />
+      </div>
 
-                    {twinResult.personality_model.personality_summary && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Summary</p>
-                        <p className="text-sm text-gray-700">{twinResult.personality_model.personality_summary}</p>
-                      </div>
-                    )}
+      {/* Input area */}
+      {(phase === 'chat' || phase === 'loading') && (
+        <div className="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
+          <div className="max-w-2xl mx-auto flex items-end gap-2">
 
-                    {twinResult.personality_model.decision_framework && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Decision Framework</p>
-                        <p className="text-sm text-gray-700">{twinResult.personality_model.decision_framework}</p>
-                      </div>
-                    )}
-
-                    {Array.isArray(twinResult.personality_model.core_values) && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Core Values</p>
-                        <div className="flex flex-wrap gap-2">
-                          {twinResult.personality_model.core_values!.map((v, i) => (
-                            <span key={i} className="text-xs bg-white border border-purple-200 text-purple-700 px-2 py-1 rounded-full">{v}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {Array.isArray(twinResult.personality_model.decision_heuristics) && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Decision Heuristics</p>
-                        <ul className="space-y-1">
-                          {twinResult.personality_model.decision_heuristics!.map((h, i) => (
-                            <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-purple-400">→</span>{h}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {submitError && (
-              <p className="text-sm text-red-500 mt-3">{submitError}</p>
-            )}
-
-            {/* Navigation */}
-            {step <= TOTAL_CONTENT_STEPS && (
-              <div className="flex justify-between mt-8">
+            {/* LinkedIn attach button — hide after upload */}
+            {!linkedinParsed && (
+              <>
                 <button
-                  onClick={() => setStep(s => s - 1)}
-                  disabled={step === 1}
-                  className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-0 transition-opacity"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={parsing || sending}
+                  title="Attach LinkedIn PDF"
+                  className="mb-1 p-2 text-gray-400 hover:text-purple-600 disabled:opacity-40 transition-colors rounded-lg hover:bg-gray-100 shrink-0"
                 >
-                  <ArrowLeft className="w-4 h-4" /> Back
+                  {parsing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-5 h-5" />
+                  )}
                 </button>
-                {step < TOTAL_CONTENT_STEPS ? (
-                  <button
-                    onClick={() => setStep(s => s + 1)}
-                    disabled={!canAdvance()}
-                    className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Next <ArrowRight className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={!canAdvance() || submitting}
-                    className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Building twin...</> : <>Submit <Check className="w-4 h-4" /></>}
-                  </button>
-                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleLinkedIn}
+                  className="hidden"
+                />
+              </>
+            )}
+
+            {/* Linked-in uploaded badge */}
+            {linkedinParsed && (
+              <div className="mb-1 flex items-center gap-1 text-xs text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-1 shrink-0">
+                <Check className="w-3 h-3" /> LinkedIn
               </div>
             )}
+
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="Type your answer…"
+              rows={1}
+              disabled={sending || phase === 'loading'}
+              className="flex-1 resize-none px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 leading-relaxed"
+            />
+
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || sending || phase === 'loading'}
+              className="mb-1 p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+            >
+              <Send className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      </div>
+      )}
     </main>
   );
 }

@@ -1404,6 +1404,157 @@ async def debate(
     return {"topic": request.topic, "turns": turns}
 
 
+# ---------------------------------------------------------------------------
+# Chat-based onboarding interview
+# ---------------------------------------------------------------------------
+
+_ONBOARD_SYSTEM_TEMPLATE = """\
+You are a sharp, warm interviewer helping someone build their AI twin — a digital version of them \
+that can answer questions on their behalf.
+
+Your job: learn who they are through a natural conversation, covering 6 topics in order.
+
+TOPICS:
+1. IDENTITY      → name, job title, short bio (who they are in a sentence or two)
+2. PROFESSIONAL  → key skills, career story, one notable achievement{linkedin_skip}
+3. DECISIONS     → how they make hard calls (want a real example), risk appetite
+4. VALUES        → what they stand for; one thing they would push back on under pressure
+5. WORKING_STYLE → how they communicate; what colleagues sometimes misread about them
+6. VOICE         → a phrase they overuse or a verbal tic; bullet-points or paragraphs?
+
+RULES — follow exactly:
+- One question per turn. 2–4 sentences per message. Be concise.
+- If an answer is vague or generic (e.g. "I just go with my gut", "I value honesty"), \
+push back ONCE: invent a tiny relatable story in one sentence that mirrors the vague answer \
+(first-person or "I once worked with someone who..."), then re-ask more concretely. \
+Push back only once per topic — then accept and move on regardless of the answer.
+- After a rich or interesting answer, acknowledge it in one brief phrase \
+("Got it.", "That's clear.", "Interesting.") before moving on.
+- Mirror their tone: terse answers → short questions; expressive answers → slightly warmer.
+- Never use form-speak ("Question 3 of 6", "Next section", "Moving on to topic...").
+- When all 6 topics are covered, close with one natural sentence and set done to true.
+
+CURRENT STATE:
+Topics remaining: {topics_remaining}
+Fields collected so far:
+{fields_json}
+{linkedin_section}
+
+RETURN ONLY valid JSON — no markdown, no text outside the JSON object:
+{{
+  "message": "your conversational response and next question as natural prose",
+  "field_updates": {{
+    "name": "value or omit key entirely if not in this message",
+    "title": "...",
+    "bio": "...",
+    "skills": "...",
+    "experience": "...",
+    "achievements": "...",
+    "coreValues": "...",
+    "decisionStyle": "...",
+    "riskTolerance": "low or medium or high — omit if unclear",
+    "pastDecisions": "...",
+    "communicationStyle": "...",
+    "blindSpots": "...",
+    "verbalQuirks": "...",
+    "responseStyle": "concise or balanced or detailed — omit if unclear"
+  }},
+  "topics_covered": ["IDENTITY", "PROFESSIONAL"],
+  "done": false
+}}
+
+Only when done is true, also include:
+  "twin_payload": {{
+    "name": "...", "title": "...", "bio": "...", "email": "",
+    "skills": "...", "experience": "...", "achievements": "...",
+    "coreValues": "...", "decisionStyle": "...", "riskTolerance": "medium",
+    "pastDecisions": "...", "communicationStyle": "...", "writingSamples": "",
+    "blindSpots": "...", "verbalQuirks": "...", "responseStyle": "balanced",
+    "archetype_id": null
+  }}
+"""
+
+
+class OnboardHistoryItem(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class OnboardRequest(BaseModel):
+    history: List[OnboardHistoryItem] = []
+    linkedin_parsed: Optional[Dict[str, Any]] = None
+    fields_collected: Optional[Dict[str, Any]] = None
+    topics_covered: List[str] = []
+
+
+_ALL_ONBOARD_TOPICS = ["IDENTITY", "PROFESSIONAL", "DECISIONS", "VALUES", "WORKING_STYLE", "VOICE"]
+
+
+@app.post("/onboard/message")
+async def onboard_message(
+    request: OnboardRequest,
+    _user_id: str = Depends(get_current_user_id),
+):
+    covered = list(request.topics_covered)
+    # Auto-mark PROFESSIONAL covered when LinkedIn data is provided
+    if request.linkedin_parsed and "PROFESSIONAL" not in covered:
+        covered.append("PROFESSIONAL")
+
+    remaining = [t for t in _ALL_ONBOARD_TOPICS if t not in covered]
+
+    linkedin_skip = " (SKIP — LinkedIn PDF provided)" if request.linkedin_parsed else ""
+
+    linkedin_section = ""
+    if request.linkedin_parsed:
+        lp = request.linkedin_parsed
+        lines = []
+        if lp.get("name"):        lines.append(f"Name: {lp['name']}")
+        if lp.get("title"):       lines.append(f"Title: {lp['title']}")
+        if lp.get("skills"):      lines.append(f"Skills: {str(lp['skills'])[:300]}")
+        if lp.get("experience"):  lines.append(f"Experience: {str(lp['experience'])[:400]}")
+        if lp.get("achievements"): lines.append(f"Achievements: {str(lp['achievements'])[:200]}")
+        if lines:
+            linkedin_section = "\nLinkedIn PDF already parsed (use this, don't re-ask):\n" + "\n".join(lines)
+
+    system_prompt = _ONBOARD_SYSTEM_TEMPLATE.format(
+        linkedin_skip=linkedin_skip,
+        topics_remaining=", ".join(remaining) if remaining else "ALL COVERED",
+        fields_json=json.dumps(request.fields_collected or {}, indent=2),
+        linkedin_section=linkedin_section,
+    )
+
+    messages: List[Dict[str, Any]] = []
+    if not request.history:
+        # Seed with a minimal opener so the model produces the first question
+        messages = [{"role": "user", "content": [{"text": "hi, let's start"}]}]
+    else:
+        for item in request.history:
+            role = "user" if item.role == "user" else "assistant"
+            messages.append({"role": role, "content": [{"text": item.content}]})
+
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": system_prompt}],
+            messages=messages,
+            inferenceConfig={"maxTokens": 400, "temperature": 0.9, "topP": 0.95},
+        )
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+
+        # Strip markdown code fences if model wraps the JSON
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.MULTILINE)
+            raw = re.sub(r"\n?```$", "", raw.strip())
+
+        data = json.loads(raw)
+        return data
+    except json.JSONDecodeError:
+        return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 if __name__ == "__main__":
     import uvicorn
 
