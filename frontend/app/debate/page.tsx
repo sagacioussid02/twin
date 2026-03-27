@@ -208,7 +208,7 @@ export default function DebatePage() {
   }
 
   const initials = (name: string) =>
-    name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+    name.split(' ').filter(n => n.length > 0).map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   const isA = (twin_id: string) => twin_id === twinIdA;
 
