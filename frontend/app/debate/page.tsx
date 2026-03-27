@@ -54,7 +54,19 @@ export default function DebatePage() {
   const [typingFor, setTypingFor] = useState<'A' | 'B' | null>(null);
 
   const cancelledRef = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Cancel any in-flight animation on unmount
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Redirect to sign-in if unauthenticated
   useEffect(() => {
@@ -102,9 +114,10 @@ export default function DebatePage() {
       return new Promise(resolve => {
         setAnimating({ twin_id, twin_name, displayedText: '', turnIndex });
         let i = 0;
-        const interval = setInterval(() => {
+        intervalRef.current = setInterval(() => {
           if (cancelledRef.current) {
-            clearInterval(interval);
+            clearInterval(intervalRef.current!);
+            intervalRef.current = null;
             resolve();
             return;
           }
@@ -113,7 +126,8 @@ export default function DebatePage() {
             prev ? { ...prev, displayedText: text.slice(0, i) } : prev
           );
           if (i >= text.length) {
-            clearInterval(interval);
+            clearInterval(intervalRef.current!);
+            intervalRef.current = null;
             resolve();
           }
         }, TYPEWRITER_MS);
