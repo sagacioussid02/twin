@@ -57,9 +57,10 @@ export default function DebatePage() {
 
   const cancelledRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Cancel any in-flight animation on unmount
+  // Cancel any in-flight animation and requests on unmount
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
@@ -67,6 +68,7 @@ export default function DebatePage() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      abortControllerRef.current?.abort();
     };
   }, []);
 
@@ -141,6 +143,8 @@ export default function DebatePage() {
   async function startDebate() {
     if (!canStart) return;
     cancelledRef.current = false;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setPageState('running');
     setDebateError('');
     setCompletedTurns([]);
@@ -171,6 +175,7 @@ export default function DebatePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ twin_id: currentTwinId, topic: topic.trim(), history }),
+          signal: controller.signal,
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -178,6 +183,7 @@ export default function DebatePage() {
         }
         data = await res.json();
       } catch (err) {
+        if (cancelledRef.current) return; // intentional cancellation — don't show error
         setDebateError(err instanceof Error ? err.message : 'Something went wrong');
         setPageState('setup');
         setTypingFor(null);
@@ -206,6 +212,7 @@ export default function DebatePage() {
 
   function reset() {
     cancelledRef.current = true;
+    abortControllerRef.current?.abort();
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
