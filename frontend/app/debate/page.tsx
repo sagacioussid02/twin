@@ -212,7 +212,12 @@ export default function DebatePage() {
 
   function reset() {
     cancelledRef.current = true;
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setPageState('setup');
     setCompletedTurns([]);
     setAnimating(null);
