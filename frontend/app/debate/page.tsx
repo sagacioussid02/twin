@@ -103,10 +103,10 @@ export default function DebatePage() {
     fetchTwins();
   }, [isLoaded, isSignedIn, getToken]);
 
-  // Auto-scroll whenever turn state changes
+  // Auto-scroll when a new turn starts or finishes (not on every typewriter tick)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [completedTurns.length, animating?.displayedText]);
+  }, [completedTurns.length, animating?.turnIndex]);
 
   const twinA = twins.find(t => t.twin_id === twinIdA);
   const twinB = twins.find(t => t.twin_id === twinIdB);
