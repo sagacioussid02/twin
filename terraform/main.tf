@@ -330,6 +330,12 @@ resource "aws_apigatewayv2_route" "post_debate_turn" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "post_onboard_message" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /onboard/message"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 # Lambda permission for API Gateway
 resource "aws_lambda_permission" "api_gw" {
   statement_id  = "AllowExecutionFromAPIGateway"
