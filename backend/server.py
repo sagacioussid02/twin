@@ -1529,9 +1529,7 @@ async def onboard_message(
         messages = [{"role": "user", "content": [{"text": "hi, let's start"}]}]
     else:
         # Cap the amount of history sent to Bedrock to avoid unbounded prompts
-        max_history_turns = 50
-        history_to_use = request.history[-max_history_turns:]
-        for item in history_to_use:
+        for item in request.history[-50:]:
             role = "user" if item.role == "user" else "assistant"
             messages.append({"role": role, "content": [{"text": item.content}]})
 
@@ -1545,19 +1543,14 @@ async def onboard_message(
         )
         raw = response["output"]["message"]["content"][0]["text"].strip()
 
-        # Use robust JSON extraction to handle any leading/trailing text or code fences
+        # Use robust JSON extraction — handles code fences and leading/trailing text
         data = _extract_json_object(raw)
 
-       .if data is None:
-            # Mirror json.loads failure handling
-            raise json.JSONDecodeError("No JSON object found in model output", raw, 0)
-
         if not isinstance(data, dict) or "message" not in data:
-            # Parsed, but not in the expected onboarding JSON shape
             raise ValueError("Invalid onboarding JSON structure")
 
         return data
-    except (json.JSONDecodeError, ValueError):
+    except (ValueError, json.JSONDecodeError):
         return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
