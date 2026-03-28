@@ -577,7 +577,12 @@ export default function CreatePage() {
                     {VOICE_QUIRK_CHIPS.map(chip => (
                       <button
                         key={chip}
-                        onClick={() => setInput(prev => prev ? `${prev}, ${chip}` : chip)}
+                        onClick={() =>
+                          setInput(prev => {
+                            const next = prev ? `${prev}, ${chip}` : chip;
+                            return next.length > MAX_CHARS ? next.slice(0, MAX_CHARS) : next;
+                          })
+                        }
                         className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-colors"
                       >
                         {chip}
