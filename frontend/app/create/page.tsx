@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { Send, Paperclip, Loader2, Check, Lightbulb } from 'lucide-react';
@@ -396,6 +396,19 @@ export default function CreatePage() {
 
   const activeTopic = ALL_TOPICS.find(t => !topicsCovered.includes(t));
 
+  // Compute lastAiIndex and lastAiMessage in one pass (used for stall detection and
+  // avatar/typing-indicator rendering below).
+  const { lastAiIndex, lastAiMessage } = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'ai') {
+        return { lastAiIndex: i, lastAiMessage: messages[i] };
+      }
+    }
+    return { lastAiIndex: -1, lastAiMessage: undefined };
+  }, [messages]);
+  const aiStalled = !!(phase === 'chat' && !sending &&
+    lastAiMessage && !lastAiMessage.content.trim().endsWith('?') && activeTopic);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <AppNav />
@@ -454,10 +467,6 @@ export default function CreatePage() {
 
             <div className="space-y-4 max-w-2xl mx-auto">
               {(() => {
-                let lastAiIndex = -1;
-                for (let i = messages.length - 1; i >= 0; i--) {
-                  if (messages[i].role === 'ai') { lastAiIndex = i; break; }
-                }
                 return messages.map((msg, i) => {
                 if (msg.role === 'status') {
                   return (
@@ -546,6 +555,42 @@ export default function CreatePage() {
 
             <div ref={bottomRef} />
           </div>
+
+          {/* Stall nudge — AI acknowledged without asking next question */}
+          {aiStalled && !canCreateManually && (
+            <div className="bg-amber-50 border-t border-amber-100 px-4 py-2 shrink-0">
+              <div className="max-w-2xl mx-auto flex items-center justify-between">
+                <p className="text-xs text-amber-700">Looks like the next question got lost — tap to continue.</p>
+                <button
+                  disabled={sending}
+                  onClick={async () => {
+                    if (sending) return;
+                    setSending(true);
+                    const token = await getToken();
+                    if (!token) {
+                      setSending(false);
+                      router.push('/sign-in');
+                      return;
+                    }
+                    const nudge: ApiHistoryItem = { role: 'user', content: 'Please continue with the next question.' };
+                    const newHistory = [...apiHistory, nudge];
+                    setApiHistory(newHistory);
+
+                    // Keep UI transcript and turn counting in sync with backend history
+                    setMessages(prevMessages => [
+                      ...prevMessages,
+                      { role: 'user', content: nudge.content },
+                    ]);
+                    setUserTurnCount(prevCount => prevCount + 1);
+                    await callOnboard(newHistory, fieldsCollected, topicsCovered, linkedinParsed, token);
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Continue →
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Manual create banner */}
           {canCreateManually && (

@@ -186,32 +186,53 @@ _PERSONALITY_MODEL_KEYS = {
 }
 
 
-def _extract_json_object(text: str) -> dict:
-    """Extract the first complete JSON object using balanced-brace scan.
-    Handles nested objects correctly — greedy regex would over-capture."""
-    start = text.find('{')
-    if start == -1:
-        raise ValueError("No JSON object found in response")
-    depth, in_string, escape_next = 0, False, False
-    for i, ch in enumerate(text[start:], start):
-        if escape_next:
-            escape_next = False
+def _extract_json_object(text: str, required_key: str | None = None) -> dict:
+    """Extract the first complete JSON object from *text*.
+
+    Scans every '{' position in turn so that a stray JSON fragment appended
+    after natural-language text doesn't shadow the real response object.
+    Returns the first valid dict (optionally containing *required_key*).
+    """
+    pos = 0
+    last_error: Exception = ValueError("No JSON object found in response")
+    while True:
+        start = text.find('{', pos)
+        if start == -1:
+            raise last_error
+        depth, in_string, escape_next = 0, False, False
+        end = None
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is None:
+            # Record the error but continue scanning from the next position
+            last_error = ValueError("Unbalanced braces — could not extract JSON object")
+            pos = start + 1
             continue
-        if ch == '\\' and in_string:
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start:i + 1])
-    raise ValueError("Unbalanced braces — could not extract JSON object")
+        try:
+            candidate = json.loads(text[start:end + 1])
+            if isinstance(candidate, dict):
+                if required_key is None or required_key in candidate:
+                    return candidate
+        except json.JSONDecodeError as exc:
+            last_error = exc
+        pos = end + 1  # advance past this block and try the next '{'
 
 
 def _extract_json_array(text: str) -> list:
@@ -1429,15 +1450,18 @@ TOPICS:
 
 RULES — follow exactly:
 - One question per turn. 2–4 sentences per message. Be concise.
+- CRITICAL: Every message MUST end with a question, except the final closing message \
+when done is true. Never just acknowledge — always ask about the next remaining topic \
+in the same message. If you acknowledge, do it in one short phrase, then immediately ask.
 - If an answer is vague or generic (e.g. "I just go with my gut", "I value honesty"), \
 push back ONCE: invent a tiny relatable story in one sentence that mirrors the vague answer \
 (first-person or "I once worked with someone who..."), then re-ask more concretely. \
 Push back only once per topic — then accept and move on regardless of the answer.
-- After a rich or interesting answer, acknowledge it in one brief phrase \
-("Got it.", "That's clear.", "Interesting.") before moving on.
+- After a rich or interesting answer, acknowledge in one brief phrase \
+("Got it.", "That's clear.", "Interesting.") and immediately ask the next question.
 - Mirror their tone: terse answers → short questions; expressive answers → slightly warmer.
 - Never use form-speak ("Question 3 of 6", "Next section", "Moving on to topic...").
-- When all 6 topics are covered, close with one natural sentence and set done to true.
+- When all 6 topics are covered (none remaining), close with one natural sentence and set done to true.
 
 CURRENT STATE:
 Topics remaining: {topics_remaining}
@@ -1445,7 +1469,9 @@ Fields collected so far:
 {fields_json}
 {linkedin_section}
 
-RETURN ONLY valid JSON — no markdown, no text outside the JSON object:
+RETURN ONLY valid JSON — no markdown, no text outside the JSON object.
+NEVER include JSON or curly-brace fragments inside the "message" string value.
+The "done" field belongs only in the top-level JSON structure, not in the message text:
 {{
   "message": "your conversational response and next question as natural prose",
   "field_updates": {{
@@ -1554,6 +1580,16 @@ async def onboard_message(
     # Auto-mark PROFESSIONAL covered when LinkedIn data is provided
     if request.linkedin_parsed and "PROFESSIONAL" not in covered:
         covered.append("PROFESSIONAL")
+    # Auto-mark IDENTITY covered when name+title+bio are already collected
+    # (from LinkedIn, a previous turn, or any other source)
+    fields = request.fields_collected or {}
+    if (
+        "IDENTITY" not in covered
+        and fields.get("name")
+        and fields.get("title")
+        and fields.get("bio")
+    ):
+        covered.append("IDENTITY")
 
     remaining = [t for t in _ALL_ONBOARD_TOPICS if t not in covered]
 
@@ -1606,8 +1642,9 @@ async def onboard_message(
         )
         raw = response["output"]["message"]["content"][0]["text"].strip()
 
-        # Use robust JSON extraction — handles code fences and leading/trailing text
-        data = _extract_json_object(raw)
+        # Use robust JSON extraction — handles code fences and leading/trailing text.
+        # Pass required_key so stray {"done": true} fragments are skipped.
+        data = _extract_json_object(raw, required_key="message")
 
         if not isinstance(data, dict) or "message" not in data:
             raise ValueError("Invalid onboarding JSON structure")
@@ -1620,12 +1657,49 @@ async def onboard_message(
         print(f"Onboard JSON parse error: {exc!r}")
         if os.getenv("DEBUG_LOG_ONBOARD_RAW") == "1":
             print(f"Onboard raw snippet (truncated): {raw[:200]!r}")
-        # Try to salvage a plain-text message from the raw output before falling back.
-        # This prevents raw JSON blobs from leaking into the chat bubble.
+
+        # Salvage a clean plain-text message and detect the done signal.
+        # Strategy: look for a trailing JSON fragment (rfind '{' in the latter half
+        # of the text) and parse it with json.loads — only trust done:true when it
+        # appears as an actual top-level key in a parseable object, not anywhere in
+        # the raw string (which would produce false positives on quoted examples).
+        done_msg = "Thanks — that's everything I need! Let me put your twin together."
+        cont_msg = "Got it — let me keep going. Could you tell me a bit more?"
+
+        fallback_done = False
         fallback_message = raw
+
         if raw.strip().startswith("{") or raw.strip().startswith("```"):
-            fallback_message = "Got it — let me keep going. Could you tell me a bit more?"
-        return {"message": fallback_message, "field_updates": {}, "topics_covered": covered, "done": False}
+            # Entire output looks like a (possibly malformed) JSON blob — can't
+            # salvage natural language, so use a canned message.
+            fallback_message = cont_msg
+        else:
+            # Check for a trailing JSON fragment like  ...nice. {"done": true}
+            last_brace = raw.rfind('{')
+            if last_brace > len(raw) // 2:
+                try:
+                    fragment = json.loads(raw[last_brace:])
+                    # Only treat this as a real trailer (and truncate) if it parses
+                    # and looks like the expected {"done": ...} object.
+                    if isinstance(fragment, dict) and "done" in fragment:
+                        if fragment.get("done") is True:
+                            fallback_done = True
+                        fallback_message = raw[:last_brace].strip()
+                except json.JSONDecodeError:
+                    # Leave fallback_message as the full raw text if the fragment
+                    # doesn't parse; don't truncate on malformed JSON.
+                    pass
+            if not fallback_message:
+                fallback_message = done_msg if fallback_done else cont_msg
+
+        fallback_topics = list(_ALL_ONBOARD_TOPICS) if fallback_done else covered
+
+        return {
+            "message": fallback_message,
+            "field_updates": {},
+            "topics_covered": fallback_topics,
+            "done": fallback_done,
+        }
     except Exception as exc:
         print(f"Unexpected error in /onboard/message: {exc}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
