@@ -861,7 +861,7 @@ If a field cannot be determined, use an empty string. Return only the JSON, no o
         try:
             parsed = _extract_json_object(response_text)
         except (ValueError, json.JSONDecodeError) as exc:
-            print(f"JSON extraction failed in parse-linkedin: {exc}\nRaw response: {response_text[:500]}")
+            print(f"JSON extraction failed in parse-linkedin: {exc}")
             raise HTTPException(status_code=500, detail="Could not parse AI response as JSON")
 
         # Detect archetype from title
