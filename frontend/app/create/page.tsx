@@ -406,7 +406,7 @@ export default function CreatePage() {
     return undefined;
   })();
   const aiStalled = !!(phase === 'chat' && !sending &&
-    lastAiMessage && !lastAiMessage.content.includes('?') && activeTopic);
+    lastAiMessage && !lastAiMessage.content.trim().endsWith('?') && activeTopic);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
