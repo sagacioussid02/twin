@@ -397,7 +397,14 @@ export default function CreatePage() {
   const activeTopic = ALL_TOPICS.find(t => !topicsCovered.includes(t));
 
   // Detect if the AI's last message has no question — need to nudge continuation
-  const lastAiMessage = [...messages].reverse().find(m => m.role === 'ai');
+  const lastAiMessage = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'ai') {
+        return messages[i];
+      }
+    }
+    return undefined;
+  })();
   const aiStalled = !!(phase === 'chat' && !sending &&
     lastAiMessage && !lastAiMessage.content.includes('?') && activeTopic);
 
