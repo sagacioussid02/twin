@@ -221,7 +221,10 @@ def _extract_json_object(text: str) -> dict:
                     end = i
                     break
         if end is None:
-            raise ValueError("Unbalanced braces — could not extract JSON object")
+            # Record the error but continue scanning from the next position
+            last_error = ValueError("Unbalanced braces — could not extract JSON object")
+            pos = start + 1
+            continue
         try:
             candidate = json.loads(text[start:end + 1])
             if isinstance(candidate, dict) and "message" in candidate:
