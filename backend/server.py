@@ -1622,7 +1622,7 @@ async def onboard_message(
         # Validate and coerce model output against a strict response model so that
         # missing keys default safely and wrong types don't reach the frontend.
         validated = OnboardResponse.model_validate(data)
-        return validated.model_dump(exclude_none=False)
+        return validated.model_dump(exclude_none=True)
     except (ValueError, json.JSONDecodeError):
         # Return raw text as message so the UI stays unblocked
         return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
