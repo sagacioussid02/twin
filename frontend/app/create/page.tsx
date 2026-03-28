@@ -568,8 +568,10 @@ export default function CreatePage() {
                   disabled={sending}
                   onClick={async () => {
                     if (sending) return;
+                    setSending(true);
                     const token = await getToken();
                     if (!token) {
+                      setSending(false);
                       router.push('/sign-in');
                       return;
                     }
