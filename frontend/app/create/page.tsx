@@ -424,7 +424,12 @@ export default function CreatePage() {
             )}
 
             <div className="space-y-4 max-w-2xl mx-auto">
-              {messages.map((msg, i) => {
+              {(() => {
+                let lastAiIndex = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role === 'ai') { lastAiIndex = i; break; }
+                }
+                return messages.map((msg, i) => {
                 if (msg.role === 'status') {
                   return (
                     <div key={i} className="flex justify-center">
@@ -435,7 +440,7 @@ export default function CreatePage() {
                   );
                 }
                 const isAi = msg.role === 'ai';
-                const isLastAi = isAi && i === messages.map(m => m.role).lastIndexOf('ai');
+                const isLastAi = isAi && i === lastAiIndex;
                 return (
                   <div key={i}>
                     <div className={`flex gap-3 ${isAi ? 'justify-start' : 'justify-end'}`}>
@@ -460,7 +465,8 @@ export default function CreatePage() {
                     )}
                   </div>
                 );
-              })}
+              });
+              })()}
 
               {/* AI typing indicator */}
               {sending && (

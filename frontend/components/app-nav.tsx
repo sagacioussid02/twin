@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { UserButton } from '@clerk/nextjs';
+import { UserButton, useAuth } from '@clerk/nextjs';
 import { LayoutDashboard, Plus, Swords } from 'lucide-react';
 
 const NAV_LINKS = [
@@ -13,6 +13,7 @@ const NAV_LINKS = [
 
 export default function AppNav() {
   const pathname = usePathname();
+  const { isLoaded, isSignedIn } = useAuth();
 
   return (
     <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between shrink-0">
@@ -46,7 +47,12 @@ export default function AppNav() {
         </nav>
       </div>
 
-      <UserButton />
+      {isLoaded && isSignedIn && <UserButton />}
+      {isLoaded && !isSignedIn && (
+        <Link href="/sign-in" className="text-sm text-gray-500 hover:text-purple-600 font-medium">
+          Sign in
+        </Link>
+      )}
     </header>
   );
 }
