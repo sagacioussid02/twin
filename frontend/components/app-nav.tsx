@@ -31,13 +31,14 @@ export default function AppNav() {
               <Link
                 key={href}
                 href={href}
+                aria-label={label}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   active
                     ? 'bg-purple-50 text-purple-700'
                     : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
                 }`}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                 <span className="hidden sm:block">{label}</span>
               </Link>
             );
