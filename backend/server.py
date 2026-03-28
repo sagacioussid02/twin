@@ -1468,15 +1468,8 @@ RETURN ONLY valid JSON — no markdown, no text outside the JSON object:
   "done": false
 }}
 
-Only when done is true, also include:
-  "twin_payload": {{
-    "name": "...", "title": "...", "bio": "...", "email": "",
-    "skills": "...", "experience": "...", "achievements": "...",
-    "coreValues": "...", "decisionStyle": "...", "riskTolerance": "medium",
-    "pastDecisions": "...", "communicationStyle": "...", "writingSamples": "",
-    "blindSpots": "...", "verbalQuirks": "...", "responseStyle": "balanced",
-    "archetype_id": null
-  }}
+When done is true, set "done": true in the JSON above. Do NOT include a twin_payload field — \
+the client will assemble the twin from the collected fields_collected data.
 """
 
 
@@ -1609,7 +1602,7 @@ async def onboard_message(
             modelId=BEDROCK_MODEL_ID,
             system=[{"text": system_prompt}],
             messages=messages,
-            inferenceConfig={"maxTokens": 400, "temperature": 0.9, "topP": 0.95},
+            inferenceConfig={"maxTokens": 700, "temperature": 0.9, "topP": 0.95},
         )
         raw = response["output"]["message"]["content"][0]["text"].strip()
 
@@ -1623,9 +1616,14 @@ async def onboard_message(
         # missing keys default safely and wrong types don't reach the frontend.
         validated = OnboardResponse.model_validate(data)
         return validated.model_dump(exclude_none=True)
-    except (ValueError, json.JSONDecodeError):
-        # Return raw text as message so the UI stays unblocked
-        return {"message": raw, "field_updates": {}, "topics_covered": covered, "done": False}
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"Onboard JSON parse error: {exc!r} | raw[:200]={raw[:200]!r}")
+        # Try to salvage a plain-text message from the raw output before falling back.
+        # This prevents raw JSON blobs from leaking into the chat bubble.
+        fallback_message = raw
+        if raw.strip().startswith("{") or raw.strip().startswith("```"):
+            fallback_message = "Got it — let me keep going. Could you tell me a bit more?"
+        return {"message": fallback_message, "field_updates": {}, "topics_covered": covered, "done": False}
     except Exception as exc:
         print(f"Unexpected error in /onboard/message: {exc}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")

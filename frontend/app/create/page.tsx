@@ -11,6 +11,22 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const ALL_TOPICS = ['IDENTITY', 'PROFESSIONAL', 'DECISIONS', 'VALUES', 'WORKING_STYLE', 'VOICE'];
 const MAX_USER_TURNS = 14;
+const MAX_CHARS = 600;
+
+const VOICE_QUIRK_CHIPS = [
+  "Always starts with 'So here's the thing...'",
+  "Says 'at the end of the day' a lot",
+  "Thinks out loud before landing on an answer",
+  "Short sentences. No fluff.",
+  "Uses analogies to explain technical things",
+  "Ends with 'does that make sense?'",
+  "Brings everything back to first principles",
+  "Says 'I don't know' openly when uncertain",
+  "Steelmans the opposing view before arguing",
+  "Uses 'to be fair' as a filler",
+  "Never uses exclamation marks",
+  "Challenges assumptions before answering",
+];
 
 interface TopicGuidance {
   label: string;
@@ -247,13 +263,26 @@ export default function CreatePage() {
       if (!res.ok) throw new Error('response failed');
       const data = await res.json();
 
+      // Defensive guard: if the message looks like a raw JSON blob (backend parse failure
+      // leaked through), replace it with a safe fallback so the user never sees raw JSON.
+      let aiMessage: string = data.message || '';
+      if (aiMessage.trim().startsWith('{') || aiMessage.trim().startsWith('```')) {
+        try {
+          const stripped = aiMessage.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '');
+          const nested = JSON.parse(stripped);
+          aiMessage = typeof nested.message === 'string' ? nested.message : "Got it, let me keep going.";
+        } catch {
+          aiMessage = "Got it, let me keep going.";
+        }
+      }
+
       const updatedFields: FieldUpdates = { ...fields, ...(data.field_updates || {}) };
       const updatedTopics: string[] = data.topics_covered || topics;
 
       setFieldsCollected(updatedFields);
       setTopicsCovered(updatedTopics);
-      setMessages(prev => [...prev, { role: 'ai', content: data.message }]);
-      setApiHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
+      setMessages(prev => [...prev, { role: 'ai', content: aiMessage }]);
+      setApiHistory(prev => [...prev, { role: 'assistant', content: aiMessage }]);
 
       const shouldCreate = data.done || updatedTopics.length >= ALL_TOPICS.length;
       if (shouldCreate) {
@@ -540,68 +569,97 @@ export default function CreatePage() {
           {/* Input area */}
           {(phase === 'chat' || phase === 'loading') && (
             <div className="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
-              <div className="max-w-2xl mx-auto flex items-end gap-2">
+              <div className="max-w-2xl mx-auto space-y-2">
 
-                {!linkedinParsed && (
-                  <>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={parsing || sending}
-                      title="Attach LinkedIn PDF"
-                      className="mb-1 p-2 text-gray-400 hover:text-purple-600 disabled:opacity-40 transition-colors rounded-lg hover:bg-gray-100 shrink-0"
-                    >
-                      {parsing ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <Paperclip className="w-5 h-5" />
-                      )}
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleLinkedIn}
-                      className="hidden"
-                    />
-                  </>
-                )}
-
-                {linkedinParsed && (
-                  <div className="mb-1 flex items-center gap-1 text-xs text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-1 shrink-0">
-                    <Check className="w-3 h-3" /> LinkedIn
+                {/* VOICE topic: preset verbal quirk chips */}
+                {activeTopic === 'VOICE' && phase === 'chat' && !sending && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {VOICE_QUIRK_CHIPS.map(chip => (
+                      <button
+                        key={chip}
+                        onClick={() => setInput(prev => prev ? `${prev}, ${chip}` : chip)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-colors"
+                      >
+                        {chip}
+                      </button>
+                    ))}
                   </div>
                 )}
 
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (
-                      e.key === 'Enter' &&
-                      !e.shiftKey &&
-                      !sending &&
-                      phase !== 'loading' &&
-                      !parsing &&
-                      input.trim()
-                    ) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  placeholder="Type your answer…"
-                  rows={1}
-                  disabled={sending || phase === 'loading' || parsing}
-                  className="flex-1 resize-none px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 leading-relaxed"
-                />
+                <div className="flex items-end gap-2">
+                  {!linkedinParsed && (
+                    <>
+                      <div className="flex flex-col items-center gap-0.5 shrink-0 mb-1">
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={parsing || sending}
+                          title="Upload LinkedIn PDF to skip background questions"
+                          className="p-2 text-gray-400 hover:text-purple-600 disabled:opacity-40 transition-colors rounded-lg hover:bg-gray-100"
+                        >
+                          {parsing ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Paperclip className="w-5 h-5" />
+                          )}
+                        </button>
+                        <span className="text-[10px] text-gray-400 leading-none">LinkedIn</span>
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleLinkedIn}
+                        className="hidden"
+                      />
+                    </>
+                  )}
 
-                <button
-                  onClick={sendMessage}
-                  disabled={!input.trim() || sending || phase === 'loading' || parsing}
-                  className="mb-1 p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+                  {linkedinParsed && (
+                    <div className="mb-1 flex items-center gap-1 text-xs text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-1 shrink-0">
+                      <Check className="w-3 h-3" /> LinkedIn
+                    </div>
+                  )}
+
+                  <div className="flex-1 relative">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={e => setInput(e.target.value.slice(0, MAX_CHARS))}
+                      onKeyDown={e => {
+                        if (
+                          e.key === 'Enter' &&
+                          !e.shiftKey &&
+                          !sending &&
+                          phase !== 'loading' &&
+                          !parsing &&
+                          input.trim()
+                        ) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      placeholder="Type your answer…"
+                      rows={1}
+                      disabled={sending || phase === 'loading' || parsing}
+                      className="w-full resize-none px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 leading-relaxed"
+                    />
+                    {input.length > MAX_CHARS * 0.8 && (
+                      <span className={`absolute bottom-1.5 right-2.5 text-[10px] ${
+                        input.length >= MAX_CHARS ? 'text-red-400' : 'text-gray-400'
+                      }`}>
+                        {MAX_CHARS - input.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={sendMessage}
+                    disabled={!input.trim() || sending || phase === 'loading' || parsing}
+                    className="mb-1 p-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
