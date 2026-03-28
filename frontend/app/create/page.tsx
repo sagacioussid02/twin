@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { Send, Paperclip, Loader2, Check, Lightbulb } from 'lucide-react';
@@ -396,15 +396,16 @@ export default function CreatePage() {
 
   const activeTopic = ALL_TOPICS.find(t => !topicsCovered.includes(t));
 
-  // Detect if the AI's last message has no question — need to nudge continuation
-  const lastAiMessage = (() => {
+  // Compute lastAiIndex and lastAiMessage in one pass (used for stall detection and
+  // avatar/typing-indicator rendering below).
+  const { lastAiIndex, lastAiMessage } = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'ai') {
-        return messages[i];
+        return { lastAiIndex: i, lastAiMessage: messages[i] };
       }
     }
-    return undefined;
-  })();
+    return { lastAiIndex: -1, lastAiMessage: undefined };
+  }, [messages]);
   const aiStalled = !!(phase === 'chat' && !sending &&
     lastAiMessage && !lastAiMessage.content.trim().endsWith('?') && activeTopic);
 
@@ -466,10 +467,6 @@ export default function CreatePage() {
 
             <div className="space-y-4 max-w-2xl mx-auto">
               {(() => {
-                let lastAiIndex = -1;
-                for (let i = messages.length - 1; i >= 0; i--) {
-                  if (messages[i].role === 'ai') { lastAiIndex = i; break; }
-                }
                 return messages.map((msg, i) => {
                 if (msg.role === 'status') {
                   return (
