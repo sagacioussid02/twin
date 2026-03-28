@@ -187,31 +187,48 @@ _PERSONALITY_MODEL_KEYS = {
 
 
 def _extract_json_object(text: str) -> dict:
-    """Extract the first complete JSON object using balanced-brace scan.
-    Handles nested objects correctly — greedy regex would over-capture."""
-    start = text.find('{')
-    if start == -1:
-        raise ValueError("No JSON object found in response")
-    depth, in_string, escape_next = 0, False, False
-    for i, ch in enumerate(text[start:], start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == '\\' and in_string:
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start:i + 1])
-    raise ValueError("Unbalanced braces — could not extract JSON object")
+    """Extract the first complete JSON object that contains a 'message' key.
+
+    Scans every '{' position in turn so that a stray JSON fragment like
+    {"done": true} appended after natural-language text doesn't shadow the
+    real response object. Returns the first valid dict that has 'message'.
+    """
+    pos = 0
+    last_error: Exception = ValueError("No JSON object found in response")
+    while True:
+        start = text.find('{', pos)
+        if start == -1:
+            raise last_error
+        depth, in_string, escape_next = 0, False, False
+        end = None
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is None:
+            raise ValueError("Unbalanced braces — could not extract JSON object")
+        try:
+            candidate = json.loads(text[start:end + 1])
+            if isinstance(candidate, dict) and "message" in candidate:
+                return candidate
+        except json.JSONDecodeError as exc:
+            last_error = exc
+        pos = end + 1  # advance past this block and try the next '{'
 
 
 def _extract_json_array(text: str) -> list:
@@ -1448,7 +1465,9 @@ Fields collected so far:
 {fields_json}
 {linkedin_section}
 
-RETURN ONLY valid JSON — no markdown, no text outside the JSON object:
+RETURN ONLY valid JSON — no markdown, no text outside the JSON object.
+NEVER include JSON or curly-brace fragments inside the "message" string value.
+The "done" field belongs only in the top-level JSON structure, not in the message text:
 {{
   "message": "your conversational response and next question as natural prose",
   "field_updates": {{
@@ -1632,12 +1651,33 @@ async def onboard_message(
         print(f"Onboard JSON parse error: {exc!r}")
         if os.getenv("DEBUG_LOG_ONBOARD_RAW") == "1":
             print(f"Onboard raw snippet (truncated): {raw[:200]!r}")
-        # Try to salvage a plain-text message from the raw output before falling back.
-        # This prevents raw JSON blobs from leaking into the chat bubble.
+
+        # Detect whether the LLM signalled completion even though the JSON was malformed.
+        # Pattern: LLM appends {"done": true} or {"done":true} as a trailing fragment.
+        fallback_done = ('"done": true' in raw or '"done":true' in raw)
+        fallback_topics = list(_ALL_ONBOARD_TOPICS) if fallback_done else covered
+
+        # Salvage a clean plain-text message — strip trailing JSON fragments.
+        done_msg = "Thanks — that's everything I need! Let me put your twin together."
+        cont_msg = "Got it — let me keep going. Could you tell me a bit more?"
+
         fallback_message = raw
         if raw.strip().startswith("{") or raw.strip().startswith("```"):
-            fallback_message = "Got it — let me keep going. Could you tell me a bit more?"
-        return {"message": fallback_message, "field_updates": {}, "topics_covered": covered, "done": False}
+            fallback_message = done_msg if fallback_done else cont_msg
+        else:
+            # Strip a trailing JSON fragment like  {"done": true}  from the sentence.
+            last_brace = raw.rfind('{')
+            if last_brace > len(raw) // 2:
+                fallback_message = raw[:last_brace].strip()
+            if not fallback_message:
+                fallback_message = done_msg if fallback_done else cont_msg
+
+        return {
+            "message": fallback_message,
+            "field_updates": {},
+            "topics_covered": fallback_topics,
+            "done": fallback_done,
+        }
     except Exception as exc:
         print(f"Unexpected error in /onboard/message: {exc}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
