@@ -2020,8 +2020,8 @@ async def deepen_message(
         return {
             "message": fallback_message,
             "field_updates": {},
-            "topics_covered": list(_ALL_DEEPEN_TOPICS) if done_fallback else covered,
-            "done": done_fallback,
+            "topics_covered": covered,
+            "done": False,
         }
     except Exception as exc:
         print(f"Unexpected error in /twin/{{twin_id}}/deepen/message: {exc}")
