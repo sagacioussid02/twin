@@ -8,6 +8,8 @@ import { useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+type DepthScore = 'Basic' | 'Developed' | 'Deep';
+
 interface Twin {
   twin_id: string;
   name: string;
@@ -15,7 +17,14 @@ interface Twin {
   archetype_display_name?: string;
   created_at: string;
   chat_url: string;
+  depth_score?: DepthScore;
 }
+
+const DEPTH_STYLES: Record<DepthScore, { pill: string; label: string }> = {
+  Basic:     { pill: 'bg-gray-100 text-gray-500 border-gray-200',         label: 'Basic' },
+  Developed: { pill: 'bg-blue-50 text-blue-600 border-blue-100',          label: 'Developed' },
+  Deep:      { pill: 'bg-purple-50 text-purple-600 border-purple-100',    label: 'Deep' },
+};
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -82,14 +91,21 @@ export default function DashboardPage() {
             {twins.map(twin => (
               <div key={twin.twin_id} className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3">
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900">{twin.name}</h3>
                     <p className="text-sm text-gray-500 mt-0.5">{twin.title}</p>
-                    {twin.archetype_display_name && (
-                      <span className="inline-block mt-1.5 text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">
-                        {twin.archetype_display_name}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {twin.archetype_display_name && (
+                        <span className="text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">
+                          {twin.archetype_display_name}
+                        </span>
+                      )}
+                      {twin.depth_score && DEPTH_STYLES[twin.depth_score] && (
+                        <span className={`text-xs border px-2 py-0.5 rounded-full ${DEPTH_STYLES[twin.depth_score].pill}`}>
+                          {DEPTH_STYLES[twin.depth_score].label}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-2 mt-auto pt-2 border-t border-gray-100">
