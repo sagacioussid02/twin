@@ -1130,8 +1130,8 @@ def _compute_depth_score(data: dict) -> str:
     Layer 3 – Values:         coreValues present
     Layer 4 – Meta-cognition: mindChange present (only filled by the deepen flow)
     """
-    ctx = data.get("_context", {})
     personality_model = data.get("personality_model") or {}
+    ctx = personality_model.get("_context", {}) if isinstance(personality_model, dict) else {}
     core_values = personality_model.get("core_values") if isinstance(personality_model, dict) else None
 
     def _filled(key: str, min_len: int = 5) -> bool:
