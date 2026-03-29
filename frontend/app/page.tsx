@@ -169,12 +169,12 @@ export default function Home() {
 
           <footer className="mt-8 text-center text-sm text-gray-500 space-y-2">
             <p>Your AI Companion Awaits</p>
-            <a
+            <Link
               href="/create"
               className="inline-block text-purple-600 hover:text-purple-800 font-medium underline underline-offset-2"
             >
               Create your own persona →
-            </a>
+            </Link>
             <p className="text-xs text-gray-400 pt-4">© 2026 Binosus LLC · All rights reserved</p>
           </footer>
         </div>
