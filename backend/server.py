@@ -945,6 +945,7 @@ async def list_my_twins(user_id: str = Depends(get_current_user_id)):
                             "archetype_display_name": data.get("archetype_display_name"),
                             "created_at": data.get("created_at", ""),
                             "chat_url": data.get("chat_url", f"/twin?id={data['twin_id']}"),
+                            "depth_score": _compute_depth_score(data),
                         })
                 except Exception as e:
                     print(f"Warning: could not read S3 object {obj['Key']}: {e}")
@@ -963,6 +964,7 @@ async def list_my_twins(user_id: str = Depends(get_current_user_id)):
                             "archetype_display_name": data.get("archetype_display_name"),
                             "created_at": data.get("created_at", ""),
                             "chat_url": data.get("chat_url", f"/twin?id={data['twin_id']}"),
+                            "depth_score": _compute_depth_score(data),
                         })
                 except Exception as e:
                     print(f"Warning: could not read twin file {f}: {e}")
@@ -1118,6 +1120,34 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
             json.dump(twin_data, f, indent=2)
 
     return {"twin_id": twin_id, "personality_model": personality_model}
+
+
+def _compute_depth_score(data: dict) -> str:
+    """Return 'Basic', 'Developed', or 'Deep' based on which of the 4 persona layers are populated.
+
+    Layer 1 – Surface:        bio present (> 20 chars)
+    Layer 2 – Decisions:      pastDecisions present
+    Layer 3 – Values:         coreValues present
+    Layer 4 – Meta-cognition: mindChange present (only filled by the deepen flow)
+    """
+    ctx = data.get("_context", {})
+
+    def _filled(key: str, min_len: int = 5) -> bool:
+        v = ctx.get(key)
+        return isinstance(v, str) and len(v.strip()) >= min_len
+
+    layers = sum([
+        _filled("bio", 20),
+        _filled("pastDecisions"),
+        _filled("coreValues"),
+        _filled("mindChange"),
+    ])
+
+    if layers == 4:
+        return "Deep"
+    if layers >= 2:
+        return "Developed"
+    return "Basic"
 
 
 def _save_twin(twin_id: str, user_id: str, twin_data: dict) -> None:
