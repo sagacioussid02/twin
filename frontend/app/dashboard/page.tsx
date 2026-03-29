@@ -101,7 +101,7 @@ export default function DashboardPage() {
                     Chat
                   </Link>
                   <Link
-                    href={`/deepen/${twin.twin_id}`}
+                    href={`/deepen?twin_id=${twin.twin_id}`}
                     className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
                   >
                     <Sparkles className="w-3.5 h-3.5" />

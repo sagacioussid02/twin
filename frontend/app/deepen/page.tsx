@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { Send, Sparkles } from 'lucide-react';
 import AppNav from '@/components/app-nav';
@@ -22,8 +22,9 @@ interface FieldUpdates {
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export default function DeepenPage() {
-  const { twin_id } = useParams<{ twin_id: string }>();
+function DeepenChat() {
+  const searchParams = useSearchParams();
+  const twin_id = searchParams.get('twin_id');
   const router = useRouter();
   const { getToken, isSignedIn, isLoaded } = useAuth();
 
@@ -42,6 +43,11 @@ export default function DeepenPage() {
   useEffect(() => {
     if (isLoaded && !isSignedIn) router.replace('/sign-in');
   }, [isLoaded, isSignedIn, router]);
+
+  // Validate twin_id is present
+  useEffect(() => {
+    if (isLoaded && !twin_id) setLoadError('No twin ID provided.');
+  }, [isLoaded, twin_id]);
 
   // Load twin name for the header
   useEffect(() => {
@@ -270,5 +276,21 @@ export default function DeepenPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function DeepenPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
+        <div className="flex gap-2">
+          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" />
+          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100" />
+          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200" />
+        </div>
+      </main>
+    }>
+      <DeepenChat />
+    </Suspense>
   );
 }
