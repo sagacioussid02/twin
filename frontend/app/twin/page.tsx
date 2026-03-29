@@ -270,8 +270,9 @@ function TwinChat() {
                       </div>
                       {isCorrectingThis && (
                         <div className="mt-1.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                          <p className="text-xs text-amber-700 font-medium mb-1.5">What should I have said instead?</p>
+                          <label htmlFor={`correction-${message.id}`} className="text-xs text-amber-700 font-medium mb-1.5 block">What should I have said instead?</label>
                           <textarea
+                            id={`correction-${message.id}`}
                             value={correcting.text}
                             onChange={e => setCorrecting(prev => prev ? { ...prev, text: e.target.value } : null)}
                             placeholder="Type the correct response..."
