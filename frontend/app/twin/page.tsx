@@ -133,6 +133,24 @@ function TwinChat() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
+      // For anonymous sessions, ensure we always have a stable session_id before
+      // the request, even if the rehydration useEffect hasn't resolved yet (race
+      // condition on first render).  Authenticated users don't need one.
+      let anonSid = sessionId;
+      if (!isSignedIn && !anonSid && id) {
+        const storageKey = `anon_session_${id}`;
+        try {
+          anonSid = localStorage.getItem(storageKey) || '';
+          if (!anonSid) {
+            anonSid = crypto.randomUUID();
+            localStorage.setItem(storageKey, anonSid);
+          }
+        } catch {
+          anonSid = crypto.randomUUID();
+        }
+        setSessionId(anonSid);
+      }
+
       const res = await fetch(`${API}/chat`, {
         method: 'POST',
         headers,
@@ -142,7 +160,7 @@ function TwinChat() {
           // For anonymous sessions, always send the localStorage-backed session_id
           // so the server can track usage across page reloads. Authenticated users
           // get a stable server-derived session keyed by their identity + twin_id.
-          ...(!isSignedIn && sessionId ? { session_id: sessionId } : {}),
+          ...(!isSignedIn && anonSid ? { session_id: anonSid } : {}),
         }),
       });
       if (res.status === 402) {
