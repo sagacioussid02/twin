@@ -188,7 +188,7 @@ function TwinChat() {
       <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-500 mb-4">{profileError}</p>
-          <Link href="/create" className="text-purple-600 underline text-sm">Create your own twin</Link>
+          <Link href="/create" className="text-purple-600 underline text-sm">Create your own persona</Link>
         </div>
       </main>
     );
