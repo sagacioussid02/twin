@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, Suspense } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { Send, User } from 'lucide-react';
+import { Send, User, Flag, Check, X } from 'lucide-react';
 import AppNav from '@/components/app-nav';
 
 interface Message {
@@ -40,6 +40,10 @@ function TwinChat() {
   const [sessionId, setSessionId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Correction state: which message is being corrected and user's text
+  const [correcting, setCorrecting] = useState<{ messageId: string; text: string } | null>(null);
+  const [correctionSaved, setCorrectionSaved] = useState<string | null>(null); // messageId of last saved
+
   useEffect(() => {
     if (!id) { setProfileError('No twin ID provided.'); return; }
     fetch(`${API}/twin/${id}`)
@@ -54,6 +58,31 @@ function TwinChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const submitCorrection = async (question: string, wrongResponse: string) => {
+    if (!correcting?.text.trim() || !id || !isSignedIn) return;
+    const token = await getToken();
+    if (!token) return;
+    const savedId = correcting.messageId;
+    try {
+      const res = await fetch(`${API}/twin/${id}/corrections`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          question,
+          wrong_response: wrongResponse,
+          correction: correcting.text.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setCorrectionSaved(savedId);
+      setTimeout(() => setCorrectionSaved(null), 3000);
+    } catch {
+      // silently fail — not critical path
+    } finally {
+      setCorrecting(null);
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -201,26 +230,79 @@ function TwinChat() {
                 </div>
               )}
 
-              {messages.map(message => (
-                <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {message.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                      {initials}
+              {messages.map((message, idx) => {
+                const prevUserMsg = message.role === 'assistant'
+                  ? [...messages].slice(0, idx).reverse().find(m => m.role === 'user')
+                  : null;
+                const isCorrectingThis = correcting?.messageId === message.id;
+                const isSaved = correctionSaved === message.id;
+
+                return (
+                  <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {message.role === 'assistant' && (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+                        {initials}
+                      </div>
+                    )}
+                    <div className={message.role === 'assistant' ? 'max-w-[70%]' : 'max-w-[70%]'}>
+                      <div className={`group rounded-lg p-3 ${message.role === 'user' ? 'bg-slate-700 text-white' : 'bg-gray-50 border border-gray-200 text-gray-800'}`}>
+                        <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className={`text-xs ${message.role === 'user' ? 'text-slate-300' : 'text-gray-400'}`}>
+                            {message.timestamp.toLocaleTimeString()}
+                          </p>
+                          {message.role === 'assistant' && isSignedIn && !isCorrectingThis && !isSaved && (
+                            <button
+                              onClick={() => setCorrecting({ messageId: message.id, text: '' })}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-400 ml-2 flex-shrink-0"
+                              title="That's not right"
+                            >
+                              <Flag className="w-3 h-3" />
+                            </button>
+                          )}
+                          {isSaved && (
+                            <span className="flex items-center gap-1 text-xs text-green-600 ml-2">
+                              <Check className="w-3 h-3" /> Saved
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {isCorrectingThis && (
+                        <div className="mt-1.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                          <p className="text-xs text-amber-700 font-medium mb-1.5">What should I have said instead?</p>
+                          <textarea
+                            value={correcting.text}
+                            onChange={e => setCorrecting(prev => prev ? { ...prev, text: e.target.value } : null)}
+                            placeholder="Type the correct response..."
+                            rows={3}
+                            className="w-full text-sm border border-amber-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none text-gray-800 bg-white"
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={() => submitCorrection(prevUserMsg?.content ?? '', message.content)}
+                              disabled={!correcting.text.trim()}
+                              className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              Save correction
+                            </button>
+                            <button
+                              onClick={() => setCorrecting(null)}
+                              className="text-xs px-3 py-1.5 text-gray-500 hover:text-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <div className={`max-w-[70%] rounded-lg p-3 ${message.role === 'user' ? 'bg-slate-700 text-white' : 'bg-gray-50 border border-gray-200 text-gray-800'}`}>
-                    <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-                    <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-slate-300' : 'text-gray-400'}`}>
-                      {message.timestamp.toLocaleTimeString()}
-                    </p>
+                    {message.role === 'user' && (
+                      <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4 text-white" />
+                      </div>
+                    )}
                   </div>
-                  {message.role === 'user' && (
-                    <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center shrink-0">
-                      <User className="w-4 h-4 text-white" />
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
 
               {isLoading && (
                 <div className="flex gap-3 justify-start">

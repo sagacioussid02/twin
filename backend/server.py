@@ -511,6 +511,7 @@ def call_bedrock(
     twin_name: Optional[str] = None,
     twin_title: Optional[str] = None,
     response_style: str = "balanced",
+    corrections: Optional[List[dict]] = None,
 ) -> str:
     """Call AWS Bedrock with conversation history"""
 
@@ -522,6 +523,7 @@ def call_bedrock(
         twin_name=twin_name,
         twin_title=twin_title,
         response_style=response_style,
+        corrections=corrections,
     )
     messages.append({
         "role": "user",
@@ -676,6 +678,7 @@ async def chat(
         if personality_model:
             response_style = personality_model.get("_context", {}).get("responseStyle", "balanced")
 
+        corrections = twin_data.get("corrections") if twin_data else None
         assistant_response = call_bedrock(
             conversation,
             request.message,
@@ -683,6 +686,7 @@ async def chat(
             twin_name,
             twin_title,
             response_style,
+            corrections=corrections,
         )
 
         # Personality review step (gated — enable via PERSONALITY_REVIEW_ENABLED=true)
@@ -1114,6 +1118,56 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
             json.dump(twin_data, f, indent=2)
 
     return {"twin_id": twin_id, "personality_model": personality_model}
+
+
+def _save_twin(twin_id: str, user_id: str, twin_data: dict) -> None:
+    """Persist twin_data to both S3 keys (flat + per-user) or local disk."""
+    if USE_S3:
+        payload = json.dumps(twin_data, indent=2)
+        for key in (
+            f"{TWINS_S3_PREFIX}{twin_id}.json",
+            f"{TWINS_S3_PREFIX}{user_id}/{twin_id}.json",
+        ):
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=key,
+                Body=payload,
+                ContentType="application/json",
+            )
+    else:
+        os.makedirs(TWINS_DIR, exist_ok=True)
+        with open(os.path.join(TWINS_DIR, f"{twin_id}.json"), "w") as f:
+            json.dump(twin_data, f, indent=2)
+
+
+class AddCorrectionRequest(BaseModel):
+    question: str
+    wrong_response: str
+    correction: str
+
+
+@app.patch("/twin/{twin_id}/corrections")
+async def add_correction(
+    twin_id: str,
+    request: AddCorrectionRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Append a user-supplied correction to a twin they own."""
+    twin_data = load_twin(twin_id)
+    if not twin_data or twin_data.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Twin not found")
+
+    corrections: list = twin_data.get("corrections", [])
+    corrections.append({
+        "question": request.question[:500],
+        "wrong_response": request.wrong_response[:500],
+        "correction": request.correction[:500],
+        "created_at": datetime.now().isoformat(),
+    })
+    # Cap stored corrections to avoid unbounded growth
+    twin_data["corrections"] = corrections[-20:]
+    _save_twin(twin_id, user_id, twin_data)
+    return {"status": "ok", "corrections_count": len(twin_data["corrections"])}
 
 
 # ---------------------------------------------------------------------------

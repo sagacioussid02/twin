@@ -494,3 +494,8 @@ resource "aws_route53_record" "alias_www_ipv6" {
     evaluate_target_health = false
   }
 }
+resource "aws_apigatewayv2_route" "patch_twin_corrections" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "PATCH /twin/{twin_id}/corrections"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}

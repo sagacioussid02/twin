@@ -4,7 +4,7 @@ from resources import (
     extra_markdown_files, extra_json_files
 )
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 full_name = facts.get("full_name", "Professional")
 name = facts.get("name", "Twin")
@@ -21,6 +21,7 @@ def prompt(
     twin_name: Optional[str] = None,
     twin_title: Optional[str] = None,
     response_style: str = "balanced",
+    corrections: Optional[List[dict]] = None,
 ):
     """
     Build the system prompt.
@@ -48,6 +49,8 @@ def prompt(
     # ── Decision intelligence section ────────────────────────────────────────
     decision_section = _build_decision_section(personality_model, display_name)
 
+    corrections_section = _build_corrections_section(corrections, short_name)
+
     return f"""# Your Role
 
 You are the AI twin of {display_name}{f' ({twin_title})' if twin_title else ''}.
@@ -59,7 +62,7 @@ You are live on {display_name}'s personal website. A user is chatting with you. 
 {factual_context}
 
 {decision_section}
-
+{corrections_section}
 ## Response Style
 
 {response_style_instruction}
@@ -78,6 +81,22 @@ You are live on {display_name}'s personal website. A user is chatting with you. 
 
 Now engage with the user as {display_name}.
 """
+
+
+def _build_corrections_section(corrections: Optional[List[dict]], short_name: str) -> str:
+    """Render user-supplied corrections as hard overrides in the system prompt."""
+    if not corrections:
+        return ""
+    lines = [
+        f"## Corrections from {short_name}\n",
+        f"These are answers {short_name} has flagged as wrong. Treat them as hard overrides — "
+        f"never repeat the wrong response; always favour the correction instead.\n",
+    ]
+    for c in corrections:
+        lines.append(f"- Question/context: {c.get('question', '')}")
+        lines.append(f"  Wrong: {c.get('wrong_response', '')}")
+        lines.append(f"  Right: {c.get('correction', '')}\n")
+    return "\n".join(lines) + "\n"
 
 
 def _build_decision_section(personality_model: Optional[dict], display_name: str) -> str:
