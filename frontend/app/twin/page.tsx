@@ -422,7 +422,7 @@ function TwinChat() {
 
           <p className="text-center text-xs text-gray-400 mt-4">
             Want your own?{' '}
-            <Link href="/create" className="text-purple-500 hover:text-purple-700 underline">Create your AI twin</Link>
+            <Link href="/create" className="text-purple-500 hover:text-purple-700 underline">Create your persona</Link>
           </p>
         </div>
       </div>
