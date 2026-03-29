@@ -1993,23 +1993,32 @@ async def deepen_message(
 
     except (ValueError, json.JSONDecodeError) as exc:
         print(f"Deepen JSON parse error: {exc!r}")
+        done_msg = "Got it — I've gathered enough to deepen your twin. Saving now."
+        cont_msg = "Got it — let me keep going. Could you tell me more?"
+
         done_fallback = False
-        fallback_message = raw if "raw" in locals() else "Got it — let me keep going. Could you tell me more?"
+        fallback_message = raw if "raw" in locals() else cont_msg
 
         if "raw" in locals():
-            last_brace = raw.rfind('{')
-            if last_brace > len(raw) // 2:
-                try:
-                    fragment = json.loads(raw[last_brace:])
-                    if isinstance(fragment, dict) and "done" in fragment:
-                        if fragment.get("done") is True:
-                            done_fallback = True
-                        fallback_message = raw[:last_brace].strip()
-                except json.JSONDecodeError:
-                    pass
+            if raw.strip().startswith("{") or raw.strip().startswith("```"):
+                # Entire output looks like a JSON blob — substitute a canned message.
+                fallback_message = cont_msg
+            else:
+                last_brace = raw.rfind('{')
+                if last_brace > len(raw) // 2:
+                    try:
+                        fragment = json.loads(raw[last_brace:])
+                        if isinstance(fragment, dict) and "done" in fragment:
+                            if fragment.get("done") is True:
+                                done_fallback = True
+                            fallback_message = raw[:last_brace].strip()
+                    except json.JSONDecodeError:
+                        pass
+                if not fallback_message:
+                    fallback_message = done_msg if done_fallback else cont_msg
 
         return {
-            "message": fallback_message or "Got it. Can you tell me more?",
+            "message": fallback_message,
             "field_updates": {},
             "topics_covered": list(_ALL_DEEPEN_TOPICS) if done_fallback else covered,
             "done": done_fallback,
