@@ -1141,11 +1141,21 @@ def _save_twin(twin_id: str, user_id: str, twin_data: dict) -> None:
 
 
 class AddCorrectionRequest(BaseModel):
-    question: str
-    wrong_response: str
-    correction: str
+    question: str = Field(..., min_length=1, max_length=500)
+    wrong_response: str = Field(..., min_length=1, max_length=500)
+    correction: str = Field(..., min_length=1, max_length=500)
 
-
+    @field_validator("question", "wrong_response", "correction", mode="before")
+    @classmethod
+    def strip_and_validate_non_empty(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError("must not be empty")
+        if not isinstance(v, str):
+            raise TypeError("must be a string")
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty or whitespace")
+        return v
 @app.patch("/twin/{twin_id}/corrections")
 async def add_correction(
     twin_id: str,
