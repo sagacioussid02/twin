@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, Suspense } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { Send, User, Flag, Check, X } from 'lucide-react';
+import { Send, User, Flag, Check } from 'lucide-react';
 import AppNav from '@/components/app-nav';
 
 interface Message {
