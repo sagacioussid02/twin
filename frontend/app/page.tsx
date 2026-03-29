@@ -91,7 +91,9 @@ export default function Home() {
     fetch(`${API}/public-personas`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.personas) setPublicPersonas(data.personas); })
-      .catch(() => {});
+      .catch((error) => {
+        console.error('Failed to load public personas:', error);
+      });
   }, []);
 
   return (
