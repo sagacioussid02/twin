@@ -31,6 +31,7 @@ jobs:
           cp *.py lambda-package/
           cp -r data lambda-package/
           cp -r personalities lambda-package/
+          cp -r public_personas lambda-package/
           cd lambda-package && zip -r ../lambda-deployment.zip . -x "*.pyc" -x "*/__pycache__/*"
           echo "Lambda zip size: $(du -sh ../lambda-deployment.zip | cut -f1)"
 

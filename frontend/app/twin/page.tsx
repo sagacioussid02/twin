@@ -5,6 +5,7 @@ import type { KeyboardEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { Send, User, Flag, Check } from 'lucide-react';
+import Link from 'next/link';
 import AppNav from '@/components/app-nav';
 
 interface Message {
@@ -187,7 +188,7 @@ function TwinChat() {
       <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-500 mb-4">{profileError}</p>
-          <a href="/create" className="text-purple-600 underline text-sm">Create your own twin</a>
+          <Link href="/create" className="text-purple-600 underline text-sm">Create your own twin</Link>
         </div>
       </main>
     );
@@ -387,12 +388,12 @@ function TwinChat() {
                 <p className="text-sm font-semibold text-purple-800 mb-1">You&apos;ve reached the free preview limit</p>
                 <p className="text-xs text-gray-500 mb-3">Sign up free to keep chatting with {firstName} and create your own persona.</p>
                 <div className="flex gap-2 justify-center">
-                  <a href="/sign-up" className="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm rounded-lg hover:opacity-90 font-medium transition-opacity">
+                  <Link href="/sign-up" className="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm rounded-lg hover:opacity-90 font-medium transition-opacity">
                     Sign up free
-                  </a>
-                  <a href="/sign-in" className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors">
+                  </Link>
+                  <Link href="/sign-in" className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors">
                     Sign in
-                  </a>
+                  </Link>
                 </div>
               </div>
             ) : (
@@ -421,7 +422,7 @@ function TwinChat() {
 
           <p className="text-center text-xs text-gray-400 mt-4">
             Want your own?{' '}
-            <a href="/create" className="text-purple-500 hover:text-purple-700 underline">Create your AI twin</a>
+            <Link href="/create" className="text-purple-500 hover:text-purple-700 underline">Create your AI twin</Link>
           </p>
         </div>
       </div>
