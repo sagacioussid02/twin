@@ -1993,9 +1993,9 @@ async def deepen_message(
     except (ValueError, json.JSONDecodeError) as exc:
         print(f"Deepen JSON parse error: {exc!r}")
         done_fallback = False
-        fallback_message = raw if 'raw' in dir() else "Got it — let me keep going. Could you tell me more?"
+        fallback_message = raw if "raw" in locals() else "Got it — let me keep going. Could you tell me more?"
 
-        if 'raw' in dir():
+        if "raw" in locals():
             last_brace = raw.rfind('{')
             if last_brace > len(raw) // 2:
                 try:
