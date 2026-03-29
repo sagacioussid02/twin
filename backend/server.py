@@ -1983,19 +1983,55 @@ async def deepen_message(
         raise HTTPException(status_code=404, detail="Twin not found")
 
     covered = list(request.topics_covered)
-    remaining = [t for t in _ALL_DEEPEN_TOPICS if t not in covered]
 
     # Build a short existing-context summary to orient the LLM
     pm = twin_data.get("personality_model", {})
+    ctx_data = pm.get("_context", {}) if isinstance(pm, dict) else {}
+
+    # Auto-mark topics that are already persisted in the twin's context so that
+    # re-deepen sessions don't re-ask questions the user already answered.
+    if isinstance(ctx_data, dict):
+        if ctx_data.get("pastDecisions") and "PAST_DECISIONS" not in covered:
+            covered.append("PAST_DECISIONS")
+        if ctx_data.get("nonNegotiables") and "NON_NEGOTIABLES" not in covered:
+            covered.append("NON_NEGOTIABLES")
+        if ctx_data.get("mindChange") and "MIND_CHANGE" not in covered:
+            covered.append("MIND_CHANGE")
+
+    remaining = [t for t in _ALL_DEEPEN_TOPICS if t not in covered]
+
+    # If all topics are already captured in the twin's context, skip the LLM
+    # entirely and return done=True so the frontend shows the completion screen.
+    if not remaining:
+        return {
+            "message": (
+                f"You've already deepened {twin_data.get('name', 'this twin')} across all three areas. "
+                "Head to your dashboard to see the updated profile."
+            ),
+            "field_updates": {},
+            "topics_covered": covered,
+            "done": True,
+        }
+
     ctx_lines = []
     if twin_data.get("name"):
         ctx_lines.append(f"Name: {twin_data['name']}")
     if twin_data.get("title"):
         ctx_lines.append(f"Title: {twin_data['title']}")
-    if pm.get("personality_summary"):
-        ctx_lines.append(f"Personality: {pm['personality_summary']}")
-    if pm.get("decision_framework"):
-        ctx_lines.append(f"Decision framework: {pm['decision_framework']}")
+    if isinstance(pm, dict):
+        if pm.get("personality_summary"):
+            ctx_lines.append(f"Personality: {pm['personality_summary']}")
+        if pm.get("decision_framework"):
+            ctx_lines.append(f"Decision framework: {pm['decision_framework']}")
+    # Include any depth data already captured so the LLM doesn't repeat those topics.
+    # Values are truncated to keep the system prompt concise.
+    if isinstance(ctx_data, dict):
+        if ctx_data.get("pastDecisions"):
+            ctx_lines.append(f"Past decisions (already captured): {ctx_data['pastDecisions'][:300]}")
+        if ctx_data.get("nonNegotiables"):
+            ctx_lines.append(f"Non-negotiables (already captured): {ctx_data['nonNegotiables'][:200]}")
+        if ctx_data.get("mindChange"):
+            ctx_lines.append(f"Mind change (already captured): {ctx_data['mindChange'][:200]}")
     existing_context = "\n".join(ctx_lines) if ctx_lines else "No existing context."
 
     system_prompt = _DEEPEN_SYSTEM_TEMPLATE.format(
@@ -2036,7 +2072,7 @@ async def deepen_message(
         # Ensure topics_covered remains cumulative across turns by unioning
         # the topics from the request with the topics returned by the model,
         # and ordering them according to the canonical _ALL_DEEPEN_TOPICS list.
-        request_topics = set(request.topics_covered or [])
+        request_topics = set(covered)  # already includes auto-populated topics
         model_topics = set(validated.topics_covered or [])
         merged_topics_set = request_topics | model_topics
         if merged_topics_set:
@@ -2046,8 +2082,13 @@ async def deepen_message(
             validated.topics_covered = merged_topics_ordered
         result = validated.model_dump(exclude_none=True)
 
+        # Guard: if the LLM covered all topics but forgot to set done=true, force it.
+        all_topics_covered = set(_ALL_DEEPEN_TOPICS).issubset(merged_topics_set)
+        if all_topics_covered and not result.get("done"):
+            result["done"] = True
+
         # If done, merge new fields and re-synthesize synchronously before returning
-        if validated.done:
+        if result.get("done"):
             all_fields = dict(request.fields_collected or {})
             fu = validated.field_updates
             for key in ("pastDecisions", "nonNegotiables", "softPreferences", "mindChange"):
@@ -2083,6 +2124,13 @@ async def deepen_message(
                         pass
                 if not fallback_message:
                     fallback_message = done_msg if done_fallback else cont_msg
+
+        if done_fallback:
+            # In the fallback path JSON parsing failed, so we can't reliably extract
+            # field updates from the current turn.  Persist whatever the frontend has
+            # already accumulated across previous turns via request.fields_collected.
+            all_fields = dict(request.fields_collected or {})
+            await _deepen_and_save(twin_id, user_id, twin_data, all_fields)
 
         return {
             "message": fallback_message,
