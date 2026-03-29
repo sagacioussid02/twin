@@ -1978,7 +1978,7 @@ async def deepen_message(
         validated = DeepenResponse.model_validate(data)
         result = validated.model_dump(exclude_none=True)
 
-        # If done, merge new fields and re-synthesize in the background
+        # If done, merge new fields and re-synthesize synchronously before returning
         if validated.done:
             all_fields = dict(request.fields_collected or {})
             fu = validated.field_updates
@@ -1986,7 +1986,7 @@ async def deepen_message(
                 val = getattr(fu, key, None)
                 if val:
                     all_fields[key] = val
-            asyncio.create_task(_deepen_and_save(twin_id, user_id, twin_data, all_fields))
+            await _deepen_and_save(twin_id, user_id, twin_data, all_fields)
 
         return result
 
