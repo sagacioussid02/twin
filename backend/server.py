@@ -76,11 +76,20 @@ def _load_public_personas() -> None:
     for f in Path(_PUBLIC_PERSONAS_DIR).glob("*.json"):
         try:
             data = json.loads(f.read_text())
+            if not isinstance(data, dict):
+                print(f"Warning: public persona file {f.name} does not contain a JSON object; skipping")
+                continue
             tid = data.get("twin_id")
-            if tid and _TWIN_ID_RE.match(tid):
-                data.setdefault("is_public", True)
-                data.setdefault("user_id", None)
-                _PUBLIC_PERSONAS[tid] = data
+            name = data.get("name")
+            if not isinstance(tid, str) or not _TWIN_ID_RE.match(tid):
+                print(f"Warning: public persona file {f.name} has invalid or missing twin_id; skipping")
+                continue
+            if not isinstance(name, str) or not name.strip():
+                print(f"Warning: public persona file {f.name} has invalid or missing name; skipping")
+                continue
+            data.setdefault("is_public", True)
+            data.setdefault("user_id", None)
+            _PUBLIC_PERSONAS[tid] = data
         except Exception as exc:
             print(f"Warning: could not load public persona {f.name}: {exc}")
 
