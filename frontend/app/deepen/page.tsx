@@ -68,13 +68,25 @@ function DeepenChat() {
   // Kick off the session automatically once we have auth — useRef guards against
   // the double-invoke that React Strict Mode causes in development.
   useEffect(() => {
-    if (!isSignedIn || startedRef.current || messages.length > 0 || done) return;
+    if (
+      !isSignedIn ||
+      !twin_id ||
+      loadError ||
+      startedRef.current ||
+      messages.length > 0 ||
+      done
+    ) {
+      return;
+    }
     startedRef.current = true;
     callDeepen('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSignedIn]);
+  }, [isSignedIn, twin_id, loadError]);
 
   const callDeepen = async (userText: string) => {
+    if (!twin_id || loadError) {
+      return;
+    }
     if (sending) return;
     setSending(true);
 
