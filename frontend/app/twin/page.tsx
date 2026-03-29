@@ -120,7 +120,20 @@ function TwinChat() {
           ...(!isSignedIn && sessionId ? { session_id: sessionId } : {}),
         }),
       });
-      if (res.status === 402) { setAnonLimitReached(true); setIsLoading(false); return; }
+      if (res.status === 402) {
+        setAnonLimitReached(true);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: 'You have reached the free usage limit. Please sign in or upgrade to continue this conversation.',
+            timestamp: new Date(),
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error('Failed to send');
       const data = await res.json();
       // Only track session_id for anonymous users; authenticated sessions are
