@@ -65,16 +65,20 @@ export default function DashboardPage() {
   }, [isLoaded, isSignedIn, getToken]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <AppNav />
 
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-4xl mx-auto px-6 py-10 flex-1">
         {/* Welcome */}
         <div className="mb-8">
+          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full mb-3">
+            <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+            Your workspace
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">
             Welcome back{user?.firstName ? `, ${user.firstName}` : ""}
           </h1>
-          <p className="text-gray-500 mt-1">Manage your AI twins</p>
+          <p className="text-gray-500 mt-1">Build, refine, and share your personas</p>
         </div>
 
         {/* Twins grid */}
@@ -144,7 +148,7 @@ export default function DashboardPage() {
                   <Plus className="w-5 h-5 text-gray-400 group-hover:text-purple-600" />
                 </div>
                 <span className="text-sm font-medium text-gray-500 group-hover:text-purple-600">
-                  Create a new twin
+                  Create a new persona
                 </span>
                 <span className="text-xs text-gray-400">
                   {twins.length}/2 twins used
@@ -160,6 +164,9 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+      <footer className="text-center text-xs text-gray-400 py-6 border-t border-gray-100">
+        © 2026 Binosus LLC · All rights reserved
+      </footer>
     </div>
   );
 }

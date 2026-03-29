@@ -1,3 +1,4 @@
+import re as _re
 from resources import (
     linkedin, summary, facts, style, bio, achievements,
     work_experience, interests, communication_guide, skills,
@@ -8,6 +9,25 @@ from typing import Optional, List
 
 full_name = facts.get("full_name", "Professional")
 name = facts.get("name", "Twin")
+
+# Fields to suppress from facts before injecting into the system prompt.
+# Keeps PII (email, phone, direct URLs) out of the LLM context.
+_FACTS_PII_KEYS = {"email", "phone", "linkedin", "twitter", "address"}
+
+_EMAIL_RE = _re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
+_PHONE_RE = _re.compile(r'\b(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b')
+
+
+def _redact_pii(text: str) -> str:
+    """Strip emails and phone numbers from free-form text (e.g. LinkedIn content)."""
+    text = _EMAIL_RE.sub('[email redacted]', text)
+    text = _PHONE_RE.sub('[phone redacted]', text)
+    return text
+
+
+def _safe_facts(facts_dict: dict) -> dict:
+    """Return facts with PII keys removed."""
+    return {k: v for k, v in facts_dict.items() if k not in _FACTS_PII_KEYS}
 
 _RESPONSE_STYLES = {
     "concise": "Keep every response to 1-3 sentences. Be direct. One idea per reply.",
@@ -228,13 +248,13 @@ def _build_from_personality_model(personality_model: dict, title: str) -> str:
 def _build_from_data_files() -> str:
     sections = []
 
-    sections.append(f"**Basic Info:** {facts}")
+    sections.append(f"**Basic Info:** {_safe_facts(facts)}")
 
     if summary:
         sections.append(f"**Summary:** {summary}")
 
     if linkedin:
-        sections.append(f"**LinkedIn Profile:**\n{linkedin}")
+        sections.append(f"**LinkedIn Profile:**\n{_redact_pii(linkedin)}")
 
     if bio:
         sections.append(f"**Biography:**\n{bio}")

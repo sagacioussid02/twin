@@ -58,6 +58,10 @@ def main():
     if os.path.exists("twins"):
         shutil.copytree("twins", "lambda-package/twins")
 
+    # Copy public personas (built-in historical personas served to all users)
+    if os.path.exists("public_personas"):
+        shutil.copytree("public_personas", "lambda-package/public_personas")
+
     # Create zip
     print("Creating zip file...")
     with zipfile.ZipFile("lambda-deployment.zip", "w", zipfile.ZIP_DEFLATED) as zipf:

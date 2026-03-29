@@ -500,6 +500,12 @@ resource "aws_apigatewayv2_route" "patch_twin_corrections" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "get_public_personas" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /public-personas"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "post_twin_deepen_message" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /twin/{twin_id}/deepen/message"

@@ -66,6 +66,29 @@ TWINS_S3_PREFIX = "twins/"
 
 _TWIN_ID_RE = re.compile(r'^[a-f0-9]{32}$')
 
+# ── Public personas ────────────────────────────────────────────────────────────
+# Loaded once at startup from backend/public_personas/*.json.
+# These are served to anyone (no auth) and use stable hard-coded twin_ids.
+_PUBLIC_PERSONAS_DIR = os.path.join(os.path.dirname(__file__), "public_personas")
+_PUBLIC_PERSONAS: dict[str, dict] = {}  # keyed by twin_id
+
+def _load_public_personas() -> None:
+    for f in Path(_PUBLIC_PERSONAS_DIR).glob("*.json"):
+        try:
+            data = json.loads(f.read_text())
+            tid = data.get("twin_id")
+            if tid and _TWIN_ID_RE.match(tid):
+                data.setdefault("is_public", True)
+                data.setdefault("user_id", None)
+                _PUBLIC_PERSONAS[tid] = data
+        except Exception as exc:
+            print(f"Warning: could not load public persona {f.name}: {exc}")
+
+_load_public_personas()
+
+# Max questions an anonymous user may ask a public persona before being prompted to sign up
+PUBLIC_PERSONA_ANON_LIMIT = 2
+
 # Secret used to derive opaque session keys — must be set in production.
 # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
 SESSION_HMAC_SECRET = os.getenv("SESSION_HMAC_SECRET", "")
@@ -276,11 +299,15 @@ def _s3_get_twin(key: str) -> Optional[dict]:
 def load_twin(twin_id: str) -> Optional[dict]:
     """Load a saved twin's data by ID. Validates ID format and confines path to TWINS_DIR.
 
+    Checks public personas first (in-memory), then S3 / local disk.
     S3 layout: flat key twins/{twin_id}.json for O(1) public lookup.
     Per-user key twins/{user_id}/{twin_id}.json exists in parallel for listing.
     """
     if not _TWIN_ID_RE.match(twin_id):
         raise HTTPException(status_code=400, detail="Invalid twin ID format")
+
+    if twin_id in _PUBLIC_PERSONAS:
+        return _PUBLIC_PERSONAS[twin_id]
 
     if USE_S3:
         # Direct flat-key lookup — O(1), safe for public endpoints
@@ -665,6 +692,14 @@ async def chat(
         twin_data = None
         if request.twin_id:
             twin_data = load_twin(request.twin_id)
+            # Enforce anonymous question limit on public personas
+            if twin_data and twin_data.get("is_public") and not chatter_id:
+                anon_q_count = sum(1 for m in conversation if m.get("role") == "user")
+                if anon_q_count >= PUBLIC_PERSONA_ANON_LIMIT:
+                    raise HTTPException(
+                        status_code=402,
+                        detail="ANON_LIMIT_REACHED",
+                    )
             if not twin_data:
                 raise HTTPException(status_code=404, detail=f"Twin '{request.twin_id}' not found")
             personality_model = twin_data.get("personality_model", {})
@@ -920,6 +955,26 @@ async def get_twin(twin_id: str):
         "core_values": twin_data.get("personality_model", {}).get("core_values", []),
         "archetype_display_name": twin_data.get("archetype_display_name"),
         "created_at": twin_data.get("created_at", ""),
+    }
+
+
+@app.get("/public-personas")
+async def list_public_personas():
+    """Return the list of built-in public personas available to all users."""
+    return {
+        "personas": [
+            {
+                "twin_id": p["twin_id"],
+                "persona_id": p.get("persona_id"),
+                "name": p["name"],
+                "title": p.get("title", ""),
+                "tagline": p.get("tagline", ""),
+                "era": p.get("era", ""),
+                "personality_summary": p.get("personality_model", {}).get("personality_summary", ""),
+                "chat_url": f"/twin?id={p['twin_id']}",
+            }
+            for p in _PUBLIC_PERSONAS.values()
+        ]
     }
 
 
@@ -1968,7 +2023,10 @@ Return ONLY valid JSON with the same structure as the existing model. No markdow
         # Depth data is already merged into personality_model["_context"] above, so it will be saved even if synthesis fails
 
     twin_data["deepen_completed_at"] = datetime.now().isoformat()
-    _save_twin(twin_id, user_id, twin_data)
+    try:
+        _save_twin(twin_id, user_id, twin_data)
+    except Exception as exc:
+        print(f"Deepen save failed: {exc}")
 
 
 @app.post("/twin/{twin_id}/deepen/message")

@@ -5,6 +5,17 @@ import { useAuth, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
 import Twin from '@/components/twin';
 
+interface PublicPersona {
+  twin_id: string;
+  name: string;
+  title: string;
+  tagline: string;
+  era: string;
+  chat_url: string;
+}
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 function StreamingTagline() {
   const [taglines, setTaglines] = useState<string[]>([]);
   const [displayText, setDisplayText] = useState('');
@@ -74,11 +85,25 @@ function StreamingTagline() {
 
 export default function Home() {
   const { isSignedIn } = useAuth();
+  const [publicPersonas, setPublicPersonas] = useState<PublicPersona[]>([]);
+
+  useEffect(() => {
+    fetch(`${API}/public-personas`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.personas) setPublicPersonas(data.personas); })
+      .catch(() => {});
+  }, []);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-4xl mx-auto">
-        <span className="font-semibold text-gray-700">AI Twin</span>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
+            <span className="text-white text-xs font-bold">P</span>
+          </div>
+          <span className="font-bold text-gray-800 tracking-tight">Personas</span>
+        </div>
         <div className="flex items-center gap-3">
           {isSignedIn ? (
             <>
@@ -88,7 +113,7 @@ export default function Home() {
           ) : (
             <>
               <Link href="/sign-in" className="text-sm text-gray-600 hover:text-gray-900">Sign in</Link>
-              <Link href="/sign-up" className="text-sm bg-purple-600 text-white px-4 py-1.5 rounded-lg hover:bg-purple-700">Get started</Link>
+              <Link href="/sign-up" className="text-sm bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-1.5 rounded-lg hover:opacity-90 transition-opacity font-medium">Get started</Link>
             </>
           )}
         </div>
@@ -107,14 +132,48 @@ export default function Home() {
             <Twin />
           </div>
 
-          <footer className="mt-8 text-center text-sm text-gray-500">
+          {/* Famous personas */}
+          {publicPersonas.length > 0 && (
+            <div className="mt-10">
+              <p className="text-center text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                Or chat with a historical persona
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {publicPersonas.map(p => (
+                  <Link
+                    key={p.twin_id}
+                    href={p.chat_url}
+                    className="group bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-2 hover:border-purple-300 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                        {p.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{p.era}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed">{p.tagline}</p>
+                    <span className="text-xs text-purple-600 font-medium group-hover:underline mt-auto">
+                      Start conversation →
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              <p className="text-center text-xs text-gray-400 mt-3">Free preview: 2 questions · Sign up for unlimited access</p>
+            </div>
+          )}
+
+          <footer className="mt-8 text-center text-sm text-gray-500 space-y-2">
             <p>Your AI Companion Awaits</p>
             <a
               href="/create"
-              className="mt-3 inline-block text-purple-600 hover:text-purple-800 font-medium underline underline-offset-2"
+              className="inline-block text-purple-600 hover:text-purple-800 font-medium underline underline-offset-2"
             >
-              Create your own twin →
+              Create your own persona →
             </a>
+            <p className="text-xs text-gray-400 pt-4">© 2026 Binosus LLC · All rights reserved</p>
           </footer>
         </div>
       </div>

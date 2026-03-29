@@ -43,6 +43,7 @@ function TwinChat() {
   // Correction state: which message is being corrected and user's text
   const [correcting, setCorrecting] = useState<{ messageId: string; text: string } | null>(null);
   const [correctionSaved, setCorrectionSaved] = useState<string | null>(null); // messageId of last saved
+  const [anonLimitReached, setAnonLimitReached] = useState(false);
   const [correctionError, setCorrectionError] = useState<string | null>(null); // messageId of last failed save
 
   useEffect(() => {
@@ -119,6 +120,7 @@ function TwinChat() {
           ...(!isSignedIn && sessionId ? { session_id: sessionId } : {}),
         }),
       });
+      if (res.status === 402) { setAnonLimitReached(true); setIsLoading(false); return; }
       if (!res.ok) throw new Error('Failed to send');
       const data = await res.json();
       // Only track session_id for anonymous users; authenticated sessions are
@@ -346,26 +348,41 @@ function TwinChat() {
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="border-t border-gray-100 p-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={`Ask ${firstName} anything...`}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 text-sm"
-                  disabled={isLoading}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={!input.trim() || isLoading}
-                  className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+            {anonLimitReached ? (
+              <div className="border-t border-gray-100 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-b-xl text-center">
+                <p className="text-sm font-semibold text-purple-800 mb-1">You&apos;ve reached the free preview limit</p>
+                <p className="text-xs text-gray-500 mb-3">Sign up free to keep chatting with {firstName} and create your own persona.</p>
+                <div className="flex gap-2 justify-center">
+                  <a href="/sign-up" className="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm rounded-lg hover:opacity-90 font-medium transition-opacity">
+                    Sign up free
+                  </a>
+                  <a href="/sign-in" className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors">
+                    Sign in
+                  </a>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="border-t border-gray-100 p-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={`Ask ${firstName} anything...`}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 text-sm"
+                    disabled={isLoading}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={!input.trim() || isLoading}
+                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-4">

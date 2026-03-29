@@ -7,7 +7,7 @@ import { LayoutDashboard, Plus, Swords } from 'lucide-react';
 
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/create', label: 'Create Twin', icon: Plus },
+  { href: '/create', label: 'Create Persona', icon: Plus },
   { href: '/debate', label: 'Debate', icon: Swords },
 ];
 
@@ -16,13 +16,15 @@ export default function AppNav() {
   const { isLoaded, isSignedIn } = useAuth();
 
   return (
-    <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between shrink-0">
+    <header className="bg-white/80 backdrop-blur border-b border-gray-200/80 px-5 py-3 flex items-center justify-between shrink-0 sticky top-0 z-30">
       <div className="flex items-center gap-5">
-        <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
-          <div className="w-7 h-7 bg-purple-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">T</span>
+        <Link href="/dashboard" className="flex items-center gap-2 shrink-0 group">
+          <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm group-hover:shadow-purple-200 transition-shadow">
+            <span className="text-white text-xs font-bold tracking-tight">P</span>
           </div>
-          <span className="font-semibold text-gray-800 text-sm hidden sm:block">AI Twin</span>
+          <span className="font-bold text-gray-800 text-sm hidden sm:block tracking-tight">
+            Personas
+          </span>
         </Link>
 
         <nav className="flex items-center gap-1">
@@ -47,12 +49,14 @@ export default function AppNav() {
         </nav>
       </div>
 
-      {isLoaded && isSignedIn && <UserButton />}
-      {isLoaded && !isSignedIn && (
-        <Link href="/sign-in" className="text-sm text-gray-500 hover:text-purple-600 font-medium">
-          Sign in
-        </Link>
-      )}
+      <div className="flex items-center gap-3">
+        {isLoaded && isSignedIn && <UserButton />}
+        {isLoaded && !isSignedIn && (
+          <Link href="/sign-in" className="text-sm text-gray-500 hover:text-purple-600 font-medium transition-colors">
+            Sign in
+          </Link>
+        )}
+      </div>
     </header>
   );
 }
