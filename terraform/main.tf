@@ -230,7 +230,7 @@ resource "aws_apigatewayv2_api" "main" {
   cors_configuration {
     allow_credentials = false
     allow_headers     = ["Content-Type", "Authorization", "X-Requested-With"]
-    allow_methods     = ["GET", "POST", "OPTIONS"]
+    allow_methods     = ["GET", "POST", "PATCH", "OPTIONS"]
     allow_origins = var.use_custom_domain ? [
       "https://${var.root_domain}",
       "https://www.${var.root_domain}"

@@ -230,9 +230,20 @@ function TwinChat() {
                 </div>
               )}
 
-              {messages.map((message, idx) => {
+              {(() => {
+                const prevUserMessages: (Message | null)[] = [];
+                let lastUserMessage: Message | null = null;
+
+                for (let i = 0; i < messages.length; i++) {
+                  prevUserMessages[i] = lastUserMessage;
+                  if (messages[i].role === 'user') {
+                    lastUserMessage = messages[i];
+                  }
+                }
+
+                return messages.map((message, idx) => {
                 const prevUserMsg = message.role === 'assistant'
-                  ? [...messages].slice(0, idx).reverse().find(m => m.role === 'user')
+                  ? prevUserMessages[idx]
                   : null;
                 const isCorrectingThis = correcting?.messageId === message.id;
                 const isSaved = correctionSaved === message.id;
@@ -304,7 +315,8 @@ function TwinChat() {
                     )}
                   </div>
                 );
-              })}
+                });
+              })()}
 
               {isLoading && (
                 <div className="flex gap-3 justify-start">
