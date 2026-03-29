@@ -1131,15 +1131,29 @@ def _compute_depth_score(data: dict) -> str:
     Layer 4 – Meta-cognition: mindChange present (only filled by the deepen flow)
     """
     ctx = data.get("_context", {})
+    personality_model = data.get("personality_model") or {}
+    core_values = personality_model.get("core_values") if isinstance(personality_model, dict) else None
 
     def _filled(key: str, min_len: int = 5) -> bool:
         v = ctx.get(key)
         return isinstance(v, str) and len(v.strip()) >= min_len
 
+    def _values_layer_filled() -> bool:
+        """Layer 3 – Values: consider either _context['coreValues'] or personality_model['core_values']."""
+        # Prefer an explicit coreValues string in _context if present
+        if _filled("coreValues"):
+            return True
+        # Fallback: check personality_model.core_values list
+        if isinstance(core_values, list):
+            for v in core_values:
+                if isinstance(v, str) and v.strip():
+                    return True
+        return False
+
     layers = sum([
         _filled("bio", 20),
         _filled("pastDecisions"),
-        _filled("coreValues"),
+        _values_layer_filled(),
         _filled("mindChange"),
     ])
 
