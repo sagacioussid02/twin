@@ -1769,6 +1769,277 @@ async def onboard_message(
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
 
 
+_DEEPEN_SYSTEM_TEMPLATE = """\
+You are helping someone deepen their AI twin. They already built a basic version; now you're \
+uncovering the nuance that makes reasoning feel real instead of generic.
+
+Your job: ask exactly 3 focused questions, one per turn, to surface depth data most twins lack.
+
+TOPICS (ask in this order, skip already-covered ones):
+1. PAST_DECISIONS  → "Walk me through 2-3 decisions you've made that were genuinely hard — \
+what you chose, what you gave up, and whether you'd do it again."
+2. NON_NEGOTIABLES → "What would you flat-out refuse to do even under real pressure? \
+And what would you bend on if the trade-off was right?"
+3. MIND_CHANGE     → "Tell me about a time you changed your mind on something you'd held \
+strongly. What actually moved you?"
+
+RULES — follow exactly:
+- One question per turn. 2-4 sentences max. Be direct and warm.
+- CRITICAL: Every message MUST end with a question, except the final closing when done is true.
+- If an answer is too vague, push back once with a concrete prompt ("Can you give me a specific \
+example?"), then accept whatever they say.
+- After a rich answer, acknowledge in one short phrase and immediately ask the next topic.
+- When all 3 topics are covered, close naturally and set done to true.
+- Never sound like a form — no "Question 1 of 3", no "Moving on to".
+
+CURRENT STATE:
+Topics remaining: {topics_remaining}
+Existing twin context (for reference — do NOT repeat back to them):
+{existing_context}
+
+RETURN ONLY valid JSON — no markdown, no text outside the JSON:
+{{
+  "message": "your question or closing as natural prose",
+  "field_updates": {{
+    "pastDecisions": "extracted from their answer — omit key if not in this message",
+    "nonNegotiables": "what they won't bend on — omit if not in this message",
+    "softPreferences": "what they would compromise on — omit if not in this message",
+    "mindChange": "the story of changing their mind — omit if not in this message"
+  }},
+  "topics_covered": ["PAST_DECISIONS"],
+  "done": false
+}}
+"""
+
+_ALL_DEEPEN_TOPICS = ["PAST_DECISIONS", "NON_NEGOTIABLES", "MIND_CHANGE"]
+
+
+class DeepenHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
+class DeepenFieldUpdates(BaseModel):
+    pastDecisions: Optional[str] = None
+    nonNegotiables: Optional[str] = None
+    softPreferences: Optional[str] = None
+    mindChange: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class DeepenRequest(BaseModel):
+    history: List[DeepenHistoryItem] = Field(default_factory=list)
+    topics_covered: List[str] = Field(default_factory=list)
+    fields_collected: Optional[Dict[str, Any]] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class DeepenResponse(BaseModel):
+    message: str
+    field_updates: DeepenFieldUpdates = Field(default_factory=DeepenFieldUpdates)
+    topics_covered: List[str] = Field(default_factory=list)
+    done: bool = False
+
+    model_config = {"extra": "ignore"}
+
+    @field_validator("field_updates", mode="before")
+    @classmethod
+    def _coerce_field_updates(cls, v: Any) -> Any:
+        if not isinstance(v, dict):
+            return {}
+        return v
+
+    @field_validator("topics_covered", mode="before")
+    @classmethod
+    def _coerce_topics_covered(cls, v: Any) -> Any:
+        if not isinstance(v, list):
+            return []
+        return [item for item in v if isinstance(item, str)]
+
+    @field_validator("done", mode="before")
+    @classmethod
+    def _coerce_done(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            return v
+        return False
+
+
+async def _deepen_and_save(twin_id: str, user_id: str, twin_data: dict, new_fields: dict) -> None:
+    """Merge new depth data into the twin's personality_model._context and re-synthesize the personality model."""
+    existing_model = twin_data.get("personality_model", {})
+    # context.py reads depth fields from personality_model["_context"], so persist there
+    ctx = dict(existing_model.get("_context", {}))
+
+    for key in ("pastDecisions", "nonNegotiables", "softPreferences", "mindChange"):
+        if new_fields.get(key):
+            if key == "pastDecisions" and ctx.get(key):
+                ctx[key] = ctx[key].strip() + "\n\n" + new_fields[key].strip()
+            else:
+                ctx[key] = new_fields[key]
+
+    # Write the updated _context back into personality_model so prompt building picks it up
+    existing_model["_context"] = ctx
+    twin_data["personality_model"] = existing_model
+
+    synthesis_prompt = f"""You are updating an AI twin's personality model with new depth data.
+
+EXISTING MODEL:
+{json.dumps(existing_model, indent=2)}
+
+NEW DEPTH DATA:
+Past decisions: {ctx.get("pastDecisions", "N/A")}
+Non-negotiables (won't bend on): {ctx.get("nonNegotiables", "N/A")}
+What they'd compromise on: {ctx.get("softPreferences", "N/A")}
+Changed their mind: {ctx.get("mindChange", "N/A")}
+
+Using the existing model as a base, return an improved JSON model that incorporates the new data.
+The new data should sharpen: decision_heuristics, blind_spots, what_they_avoid, decision_framework, personality_summary.
+Preserve fields unaffected by this data: core_values, communication_traits, risk_profile, what_they_optimize_for.
+Return ONLY valid JSON with the same structure as the existing model. No markdown, no extra text."""
+
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": synthesis_prompt}],
+            messages=[{"role": "user", "content": [{"text": "Update the personality model with the new depth data."}]}],
+            inferenceConfig={"maxTokens": 1200, "temperature": 0.5, "topP": 0.9},
+        )
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+        updated_model = _extract_json_object(raw)
+        if isinstance(updated_model, dict) and updated_model:
+            # Always carry the updated _context into the re-synthesized model
+            updated_model["_context"] = ctx
+            twin_data["personality_model"] = updated_model
+    except Exception as exc:
+        print(f"Deepen re-synthesis failed (non-fatal): {exc}")
+        # Depth data is already merged into personality_model["_context"] above, so it will be saved even if synthesis fails
+
+    twin_data["deepen_completed_at"] = datetime.now().isoformat()
+    _save_twin(twin_id, user_id, twin_data)
+
+
+@app.post("/twin/{twin_id}/deepen/message")
+async def deepen_message(
+    twin_id: str,
+    request: DeepenRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Run one turn of the deepen interview for a twin the caller owns."""
+    twin_data = load_twin(twin_id)
+    if not twin_data or twin_data.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Twin not found")
+
+    covered = list(request.topics_covered)
+    remaining = [t for t in _ALL_DEEPEN_TOPICS if t not in covered]
+
+    # Build a short existing-context summary to orient the LLM
+    pm = twin_data.get("personality_model", {})
+    ctx_lines = []
+    if twin_data.get("name"):
+        ctx_lines.append(f"Name: {twin_data['name']}")
+    if twin_data.get("title"):
+        ctx_lines.append(f"Title: {twin_data['title']}")
+    if pm.get("personality_summary"):
+        ctx_lines.append(f"Personality: {pm['personality_summary']}")
+    if pm.get("decision_framework"):
+        ctx_lines.append(f"Decision framework: {pm['decision_framework']}")
+    existing_context = "\n".join(ctx_lines) if ctx_lines else "No existing context."
+
+    system_prompt = _DEEPEN_SYSTEM_TEMPLATE.format(
+        topics_remaining=", ".join(remaining) if remaining else "ALL COVERED",
+        existing_context=existing_context,
+    )
+
+    messages: List[Dict[str, Any]] = []
+    if not request.history:
+        messages = [{"role": "user", "content": [{"text": "hi, let's start"}]}]
+    else:
+        for item in request.history[-30:]:
+            if item.role not in ("user", "assistant"):
+                raise HTTPException(status_code=400, detail=f"Invalid role: {item.role!r}")
+            messages.append({"role": item.role, "content": [{"text": item.content}]})
+
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": system_prompt}],
+            messages=messages,
+            inferenceConfig={"maxTokens": 600, "temperature": 0.9, "topP": 0.95},
+        )
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+        data = _extract_json_object(raw, required_key="message")
+
+        if not isinstance(data, dict) or "message" not in data:
+            raise ValueError("Invalid deepen JSON structure")
+
+        validated = DeepenResponse.model_validate(data)
+
+        # Ensure topics_covered remains cumulative across turns by unioning
+        # the topics from the request with the topics returned by the model,
+        # and ordering them according to the canonical _ALL_DEEPEN_TOPICS list.
+        request_topics = set(request.topics_covered or [])
+        model_topics = set(validated.topics_covered or [])
+        merged_topics_set = request_topics | model_topics
+        if merged_topics_set:
+            merged_topics_ordered: List[str] = [
+                topic for topic in _ALL_DEEPEN_TOPICS if topic in merged_topics_set
+            ]
+            validated.topics_covered = merged_topics_ordered
+        result = validated.model_dump(exclude_none=True)
+
+        # If done, merge new fields and re-synthesize synchronously before returning
+        if validated.done:
+            all_fields = dict(request.fields_collected or {})
+            fu = validated.field_updates
+            for key in ("pastDecisions", "nonNegotiables", "softPreferences", "mindChange"):
+                val = getattr(fu, key, None)
+                if val:
+                    all_fields[key] = val
+            await _deepen_and_save(twin_id, user_id, twin_data, all_fields)
+
+        return result
+
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"Deepen JSON parse error: {exc!r}")
+        done_msg = "Got it — I've gathered enough to deepen your twin. Saving now."
+        cont_msg = "Got it — let me keep going. Could you tell me more?"
+
+        done_fallback = False
+        fallback_message = raw if "raw" in locals() else cont_msg
+
+        if "raw" in locals():
+            if raw.strip().startswith("{") or raw.strip().startswith("```"):
+                # Entire output looks like a JSON blob — substitute a canned message.
+                fallback_message = cont_msg
+            else:
+                last_brace = raw.rfind('{')
+                if last_brace > len(raw) // 2:
+                    try:
+                        fragment = json.loads(raw[last_brace:])
+                        if isinstance(fragment, dict) and "done" in fragment:
+                            if fragment.get("done") is True:
+                                done_fallback = True
+                            fallback_message = raw[:last_brace].strip()
+                    except json.JSONDecodeError:
+                        pass
+                if not fallback_message:
+                    fallback_message = done_msg if done_fallback else cont_msg
+
+        return {
+            "message": fallback_message,
+            "field_updates": {},
+            "topics_covered": covered,
+            "done": done_fallback,
+        }
+    except Exception as exc:
+        print(f"Unexpected error in /twin/{{twin_id}}/deepen/message: {exc}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
+
+
 if __name__ == "__main__":
     import uvicorn
 

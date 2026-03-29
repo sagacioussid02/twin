@@ -2,7 +2,7 @@
 
 import { useUser, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
-import { Plus, MessageSquare, ExternalLink } from "lucide-react";
+import { Plus, MessageSquare, ExternalLink, Sparkles } from "lucide-react";
 import AppNav from "@/components/app-nav";
 import { useEffect, useState } from "react";
 
@@ -99,6 +99,13 @@ export default function DashboardPage() {
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
                     Chat
+                  </Link>
+                  <Link
+                    href={`/deepen?twin_id=${twin.twin_id}`}
+                    className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Deepen
                   </Link>
                   <button
                     onClick={() => navigator.clipboard.writeText(`${window.location.origin}${twin.chat_url}`)}
