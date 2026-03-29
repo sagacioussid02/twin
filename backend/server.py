@@ -1868,8 +1868,10 @@ class DeepenResponse(BaseModel):
 
 
 async def _deepen_and_save(twin_id: str, user_id: str, twin_data: dict, new_fields: dict) -> None:
-    """Merge new depth data into the twin's _context and re-synthesize the personality model."""
-    ctx = dict(twin_data.get("_context", {}))
+    """Merge new depth data into the twin's personality_model._context and re-synthesize the personality model."""
+    existing_model = twin_data.get("personality_model", {})
+    # context.py reads depth fields from personality_model["_context"], so persist there
+    ctx = dict(existing_model.get("_context", {}))
 
     for key in ("pastDecisions", "nonNegotiables", "softPreferences", "mindChange"):
         if new_fields.get(key):
@@ -1878,8 +1880,9 @@ async def _deepen_and_save(twin_id: str, user_id: str, twin_data: dict, new_fiel
             else:
                 ctx[key] = new_fields[key]
 
-    twin_data["_context"] = ctx
-    existing_model = twin_data.get("personality_model", {})
+    # Write the updated _context back into personality_model so prompt building picks it up
+    existing_model["_context"] = ctx
+    twin_data["personality_model"] = existing_model
 
     synthesis_prompt = f"""You are updating an AI twin's personality model with new depth data.
 
@@ -1908,13 +1911,12 @@ Return ONLY valid JSON with the same structure as the existing model. No markdow
         raw = response["output"]["message"]["content"][0]["text"].strip()
         updated_model = _extract_json_object(raw)
         if isinstance(updated_model, dict) and updated_model:
-            # Preserve the _context sub-key in the model if the existing one had it
-            if "_context" in existing_model:
-                updated_model["_context"] = existing_model["_context"]
+            # Always carry the updated _context into the re-synthesized model
+            updated_model["_context"] = ctx
             twin_data["personality_model"] = updated_model
     except Exception as exc:
         print(f"Deepen re-synthesis failed (non-fatal): {exc}")
-        # Depth data is still merged into _context even if synthesis fails
+        # Depth data is already merged into personality_model["_context"] above, so it will be saved even if synthesis fails
 
     twin_data["deepen_completed_at"] = datetime.now().isoformat()
     _save_twin(twin_id, user_id, twin_data)
