@@ -36,6 +36,7 @@ export default function DeepenPage() {
   const [done, setDone] = useState(false);
   const [loadError, setLoadError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const startedRef = useRef(false);
 
   // Redirect if not signed in once auth loads
   useEffect(() => {
@@ -58,9 +59,11 @@ export default function DeepenPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Kick off the session automatically once we have auth
+  // Kick off the session automatically once we have auth — useRef guards against
+  // the double-invoke that React Strict Mode causes in development.
   useEffect(() => {
-    if (!isSignedIn || messages.length > 0 || done) return;
+    if (!isSignedIn || startedRef.current || messages.length > 0 || done) return;
+    startedRef.current = true;
     callDeepen('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
