@@ -69,10 +69,10 @@ function DeepenChat() {
   // Auto-redirect countdown once interview is done
   useEffect(() => {
     if (!done) return;
-    if (countdown <= 0) { router.push('/dashboard'); return; }
+    if (countdown <= 0) { window.location.href = '/dashboard'; return; }
     const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [done, countdown, router]);
+  }, [done, countdown]);
 
   // Kick off the session automatically once we have auth — useRef guards against
   // the double-invoke that React Strict Mode causes in development.
@@ -274,7 +274,7 @@ function DeepenChat() {
                   Redirecting to dashboard in {countdown}s…
                 </p>
                 <button
-                  onClick={() => router.push('/dashboard')}
+                  onClick={() => { window.location.href = '/dashboard'; }}
                   className="px-5 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   Go to dashboard now

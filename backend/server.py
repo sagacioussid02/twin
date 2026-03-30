@@ -1252,7 +1252,11 @@ def _compute_depth_score(data: dict) -> str:
         _filled("mindChange"),
     ])
 
-    if layers == 4:
+    # deepen_completed_at is stamped by _deepen_and_save whenever the interview
+    # finishes. Use it as a reliable "Deep" signal because the LLM sometimes
+    # covers a topic without populating the corresponding field_updates key,
+    # leaving mindChange empty even though the user completed the flow.
+    if data.get("deepen_completed_at") or layers == 4:
         return "Deep"
     if layers >= 2:
         return "Developed"
