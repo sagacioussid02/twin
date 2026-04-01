@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import Link from 'next/link';
 import { Send, User } from 'lucide-react';
 
 interface Message {
@@ -191,12 +192,12 @@ export default function Twin() {
                     <p className="text-sm font-semibold text-purple-800 mb-1">Want to keep chatting?</p>
                     <p className="text-xs text-gray-500 mb-3">Sign up free to continue — no credit card needed.</p>
                     <div className="flex gap-2 justify-center">
-                        <a href="/sign-up" className="px-4 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
+                        <Link href="/sign-up" className="px-4 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
                             Sign up free
-                        </a>
-                        <a href="/sign-in" className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors">
+                        </Link>
+                        <Link href="/sign-in" className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors">
                             Sign in
-                        </a>
+                        </Link>
                     </div>
                 </div>
             ) : (
