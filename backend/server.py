@@ -111,7 +111,7 @@ def _load_public_personas() -> None:
 _load_public_personas()
 
 # Max questions an anonymous user may ask a public persona before being prompted to sign up
-PUBLIC_PERSONA_ANON_LIMIT = 2
+PUBLIC_PERSONA_ANON_LIMIT = 5
 
 # Secret used to derive opaque session keys — must be set in production.
 # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
@@ -740,10 +740,11 @@ async def chat(
             twin_name = twin_data.get("name")
             twin_title = twin_data.get("title")
 
-        # Determine response_style from personality model context
-        response_style = "balanced"
+        # Determine response_style from personality model context.
+        # Default twin (no twin_id) uses "concise" to keep homepage chat snappy.
+        response_style = "concise" if not request.twin_id else "balanced"
         if personality_model:
-            response_style = personality_model.get("_context", {}).get("responseStyle", "balanced")
+            response_style = personality_model.get("_context", {}).get("responseStyle", response_style)
 
         corrections = twin_data.get("corrections") if twin_data else None
         assistant_response = call_bedrock(
