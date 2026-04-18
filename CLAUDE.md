@@ -51,7 +51,11 @@ Browser → CloudFront → API Gateway → Lambda (FastAPI/Mangum) → Bedrock +
 - `backend/context.py` — System prompt construction for Bedrock calls; redacts PII from injected text
 - `backend/personality_agent.py` — Archetype detection and optional per-response tone review
 - `backend/resources.py` — Loads default twin data from `backend/data/`
+<<<<<<< HEAD
 - `backend/public_personas/` — Static JSON files for built-in public personas; served without auth
+=======
+- `backend/public_personas/` — Static JSON files for public personas (Gandhi, Chaplin); served without auth
+>>>>>>> 200b79c (feat: add Warren Buffett public persona + improve CLAUDE.md)
 - `backend/personalities/archetypes.json` — Role archetypes used to nudge twin tone (e.g. "engineer", "executive")
 - `frontend/app/` — Next.js App Router pages
 - `frontend/components/twin.tsx` — Unauthenticated chat component
