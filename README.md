@@ -13,7 +13,7 @@ Think of it as a second brain that doesn't get tired, doesn't have meetings, and
 1. **Chat with Sidd's twin** — try it on the homepage, no account needed (5 questions before we ask you to commit)
 2. **Create your own persona** — walk through a guided interview, optionally upload your LinkedIn PDF, and get an AI twin that reasons the way you do
 3. **Deepen it** — a follow-up interview digs into past decisions, non-negotiables, and times you changed your mind. This is the stuff that makes the difference between "generic chatbot" and "uncanny valley"
-4. **Chat with historical figures** — Gandhi and Charlie Chaplin are available. More coming. They're shockingly opinionated.
+4. **Chat with historical figures** — public personas are available, with more being added over time. They're shockingly opinionated.
 
 ---
 
