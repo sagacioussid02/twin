@@ -51,6 +51,7 @@ function ResumeBuilder() {
   const [jobDescription, setJobDescription] = useState<Record<string, string> | null>(null);
   const [linkedinUploading, setLinkedinUploading] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
+  const [jdUploadError, setJdUploadError] = useState('');
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -139,8 +140,14 @@ function ResumeBuilder() {
     const file = e.target.files?.[0];
     if (!file) return;
     setJdUploading(true);
+    setJdUploadError('');
     try {
       const token = await getToken();
+      if (!token) {
+        setJdUploadError('Please sign in to upload a job description PDF.');
+        router.push('/sign-in');
+        return;
+      }
       const form = new FormData();
       form.append('file', file);
       const res = await fetch(`${API}/resume/parse-jd`, {
@@ -148,16 +155,17 @@ function ResumeBuilder() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setJobDescription(data);
-        setFieldsCollected(prev => ({
-          ...prev,
-          target_role: data.role || prev.target_role || '',
-          job_description: data.raw_text || '',
-        }));
-      }
-    } catch { /* ignore */ } finally {
+      if (!res.ok) throw new Error('Job description upload failed');
+      const data = await res.json();
+      setJobDescription(data);
+      setFieldsCollected(prev => ({
+        ...prev,
+        target_role: data.role || prev.target_role || '',
+        job_description: data.raw_text || '',
+      }));
+    } catch {
+      setJdUploadError('Could not upload job description. Please try again.');
+    } finally {
       setJdUploading(false);
       if (jdRef.current) jdRef.current.value = '';
     }
@@ -346,6 +354,9 @@ function ResumeBuilder() {
                   )}
                 </div>
                 <input ref={jdRef} type="file" accept=".pdf" className="hidden" onChange={handleJdUpload} />
+                {jdUploadError && (
+                  <p className="text-xs text-red-600">{jdUploadError}</p>
+                )}
               </div>
 
               {topicsCovered.length > 0 && (
