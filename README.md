@@ -122,9 +122,9 @@ Browser
 
 ## Deploying
 
-Push to `main`. GitHub Actions handles the rest — builds the Lambda package, runs Terraform, deploys the frontend to Vercel. See `.github/workflows/deploy.yml` if you want to know exactly what's happening (or what broke).
+Push to `main`. GitHub Actions handles the rest — builds the Lambda package, runs Terraform, and deploys the frontend to the AWS-hosted static site stack managed in this repo (S3 + CloudFront). See `.github/workflows/deploy.yml` if you want to know exactly what's happening (or what broke).
 
-The infra lives in AWS (Lambda + API Gateway + S3) with Vercel for the frontend. Terraform state is in S3 with a DynamoDB lock table, because losing infra state is the kind of thing that ruins Tuesdays.
+The infra lives in AWS (Lambda + API Gateway + S3 + CloudFront). Terraform state is in S3 with a DynamoDB lock table, because losing infra state is the kind of thing that ruins Tuesdays.
 
 ---
 
