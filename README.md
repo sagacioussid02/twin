@@ -102,7 +102,7 @@ Browser
 │   ├── personality_agent.py  # Archetype detection
 │   ├── resources.py       # Loads the default twin's data files
 │   ├── data/              # Sidd's actual profile data (bio, skills, etc.)
-│   └── public_personas/   # Gandhi, Chaplin — loaded at startup
+│   └── public_personas/   # Public persona JSON files loaded at startup
 │
 ├── frontend/
 │   ├── app/               # Next.js App Router pages
