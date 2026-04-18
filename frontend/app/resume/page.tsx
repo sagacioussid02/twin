@@ -17,6 +17,12 @@ const TOPIC_LABELS: Record<string, string> = {
   ACCOMPLISHMENTS: 'Wins',
   TARGET_ROLE: 'Target Role',
 };
+const JOB_DESCRIPTION_UPLOAD_ERROR = {
+  AUTH_REQUIRED: 'AUTH_REQUIRED',
+  INVALID_PDF: 'INVALID_PDF',
+  UPLOAD_FAILED: 'UPLOAD_FAILED',
+} as const;
+const AUTH_REDIRECT_DELAY_MS = 1200;
 
 interface Message {
   id: string;
@@ -144,8 +150,9 @@ function ResumeBuilder() {
     try {
       const token = await getToken();
       if (!token) {
-        setJdUploadError('Please sign in to upload a job description PDF.');
-        router.push('/sign-in');
+        setJdUploadError('Please sign in to upload a job description PDF. Redirecting to sign-in...');
+        setTimeout(() => router.push('/sign-in'), AUTH_REDIRECT_DELAY_MS);
+        setJdUploading(false);
         return;
       }
       const form = new FormData();
@@ -155,7 +162,11 @@ function ResumeBuilder() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      if (!res.ok) throw new Error('Job description upload failed');
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) throw new Error(JOB_DESCRIPTION_UPLOAD_ERROR.AUTH_REQUIRED);
+        if (res.status === 400) throw new Error(JOB_DESCRIPTION_UPLOAD_ERROR.INVALID_PDF);
+        throw new Error(JOB_DESCRIPTION_UPLOAD_ERROR.UPLOAD_FAILED);
+      }
       const data = await res.json();
       setJobDescription(data);
       setFieldsCollected(prev => ({
@@ -163,8 +174,15 @@ function ResumeBuilder() {
         target_role: data.role || prev.target_role || '',
         job_description: data.raw_text || '',
       }));
-    } catch {
-      setJdUploadError('Could not upload job description. Please try again.');
+    } catch (error) {
+      if (error instanceof Error && error.message === JOB_DESCRIPTION_UPLOAD_ERROR.AUTH_REQUIRED) {
+        setJdUploadError('Your session expired. Redirecting to sign-in...');
+        setTimeout(() => router.push('/sign-in'), AUTH_REDIRECT_DELAY_MS);
+      } else if (error instanceof Error && error.message === JOB_DESCRIPTION_UPLOAD_ERROR.INVALID_PDF) {
+        setJdUploadError('Upload failed: please provide a valid PDF file.');
+      } else {
+        setJdUploadError('Could not upload job description. Check your connection and try again.');
+      }
     } finally {
       setJdUploading(false);
       if (jdRef.current) jdRef.current.value = '';
