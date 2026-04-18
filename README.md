@@ -72,7 +72,7 @@ Everything else has sensible defaults for local development.
 Browser
   │
   ├── Static frontend (Next.js)
-  │     Vercel in prod, localhost:3000 locally
+  │     S3 + CloudFront in prod, localhost:3000 locally
   │
   └── API calls ──► FastAPI (Python)
                       Lambda in prod, uvicorn locally
