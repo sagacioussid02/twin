@@ -168,7 +168,7 @@ export default function Home() {
                   </Link>
                 ))}
               </div>
-              <p className="text-center text-xs text-gray-400 mt-3">Free preview: 2 questions · Sign up for unlimited access</p>
+              <p className="text-center text-xs text-gray-400 mt-3">Free preview: 5 questions · Sign up for unlimited access</p>
             </div>
           )}
 

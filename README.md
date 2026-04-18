@@ -132,7 +132,7 @@ The infra lives in AWS (Lambda + API Gateway + S3 + CloudFront). Terraform state
 
 This started as "what if my resume could talk back" and evolved into something more interesting: a platform for capturing how people actually reason, not just what they've done. Resumes list accomplishments. This tries to capture the mental model behind them.
 
-The historical personas (Gandhi, Chaplin) exist to prove the concept works for public figures — and because having Gandhi explain nonviolent resistance to you directly is genuinely a different experience than reading a Wikipedia summary.
+The historical personas (like Gandhi, Charlie Chaplin, and Buffett) exist to prove the concept works for public figures — and because having Gandhi explain nonviolent resistance to you directly is genuinely a different experience than reading a Wikipedia summary.
 
 ---
 

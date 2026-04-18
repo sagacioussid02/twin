@@ -417,15 +417,21 @@ function TwinChat() {
             ) : (
               <div className="border-t border-gray-100 p-4">
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={`Ask ${firstName} anything...`}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 text-sm"
-                    disabled={isLoading}
-                  />
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={`Ask ${firstName} anything…`}
+                      maxLength={100}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 text-sm"
+                      disabled={isLoading}
+                    />
+                    {input.length > 80 && (
+                      <span className="absolute right-3 bottom-2 text-xs text-gray-400">{input.length}/100</span>
+                    )}
+                  </div>
                   <button
                     onClick={sendMessage}
                     disabled={!input.trim() || isLoading}
