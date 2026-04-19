@@ -778,10 +778,14 @@ async def chat(
 
         # Notify admin when a signed-in user asks to give feedback / contact the creator.
         if viewer_is_authenticated and _CONNECT_RE.search(request.message):
+            notify_message = (
+                f"{request.message}\n\n"
+                f"Authenticated chatter_id: {chatter_id}"
+            )
             try:
                 await asyncio.wait_for(
                     _notify_connect_intent(
-                        request.message, session_id, twin_name or "Sidd"
+                        notify_message, session_id, twin_name or "Sidd"
                     ),
                     timeout=3.0,
                 )
