@@ -730,6 +730,7 @@ async def chat(
             twin_data["sources"] = _normalize_source_ids(ensure_sources(twin_data))
         orchestration = run_chat_orchestration(
             twin_data=twin_data,
+            sources=twin_data["sources"] if twin_data else None,
             user_message=request.message,
             conversation=conversation,
             bedrock_client=bedrock_client,

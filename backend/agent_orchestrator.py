@@ -15,6 +15,7 @@ from source_memory import ensure_sources, retrieve_relevant_sources
 def run_chat_orchestration(
     *,
     twin_data: Optional[dict],
+    sources: Optional[List[Dict[str, Any]]] = None,
     user_message: str,
     conversation: List[Dict[str, Any]],
     bedrock_client,
@@ -27,7 +28,7 @@ def run_chat_orchestration(
 ) -> Dict[str, Any]:
     """Coordinate router, retrieval, responder, and critic for chat."""
     route = route_message(user_message, conversation)
-    sources = ensure_sources(twin_data) if twin_data else []
+    sources = sources if sources is not None else (ensure_sources(twin_data) if twin_data else [])
     retrieved_sources = (
         retrieve_relevant_sources(
             user_message,
