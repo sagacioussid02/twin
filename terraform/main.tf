@@ -202,6 +202,11 @@ resource "aws_iam_role_policy" "lambda_ses" {
         Effect   = "Allow"
         Action   = "ses:SendEmail"
         Resource = "*"
+        Condition = {
+          StringEquals = {
+            "ses:FromAddress" = var.ses_from_email
+          }
+        }
       }
     ]
   })
