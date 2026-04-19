@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
 import Twin from '@/components/twin';
+import { Sparkles } from 'lucide-react';
 
 interface PublicPersona {
   twin_id: string;
@@ -16,6 +17,10 @@ interface PublicPersona {
 }
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+function PersonasLogo({ className = 'w-7 h-7' }: { className?: string }) {
+  return <img src="/personas-logo.svg" alt="Personas logo" className={className} />;
+}
 
 function StreamingTagline() {
   const [taglines, setTaglines] = useState<string[]>([]);
@@ -97,13 +102,15 @@ export default function Home() {
       });
   }, []);
 
+  const marqueePersonas = publicPersonas.length > 0 ? [...publicPersonas, ...publicPersonas] : [];
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(249,115,22,0.18),_transparent_24%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_42%,_#f8fafc_100%)]">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 max-w-4xl mx-auto">
+      <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
-            <span className="text-white text-xs font-bold">P</span>
+          <div className="w-9 h-9 rounded-xl shadow-md shadow-sky-200/60 overflow-hidden">
+            <PersonasLogo className="w-full h-full" />
           </div>
           <span className="font-bold text-gray-800 tracking-tight">Personas</span>
         </div>
@@ -123,63 +130,83 @@ export default function Home() {
       </nav>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-bold text-center text-gray-800 mb-2">
-            What would Sidd do?
-          </h1>
-          <div className="text-center mb-6 h-7">
-            <StreamingTagline />
-          </div>
-
-          <div className="h-[420px]">
-            <Twin />
-          </div>
-
-          {/* Famous personas */}
-          {publicPersonas.length > 0 && (
-            <div className="mt-10">
-              <p className="text-center text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
-                Or chat with a historical persona
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {publicPersonas.map(p => (
-                  <Link
-                    key={p.twin_id}
-                    href={p.chat_url}
-                    className="group bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-2 hover:border-purple-300 hover:shadow-sm transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0 border border-gray-100">
-                        {p.image_url ? (
-                          <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                        ) : (
-                          p.name.split(' ').map(n => n[0]).join('').slice(0, 2)
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
-                        <p className="text-xs text-gray-500 truncate">{p.era}</p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-600 leading-relaxed">{p.tagline}</p>
-                    <span className="text-xs text-purple-600 font-medium group-hover:underline mt-auto">
-                      Start conversation →
-                    </span>
-                  </Link>
-                ))}
-              </div>
-              <p className="text-center text-xs text-gray-400 mt-3">Free preview: 5 questions · Sign up for unlimited access</p>
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-sky-200 bg-white/70 text-xs font-semibold uppercase tracking-[0.24em] text-sky-700 shadow-sm">
+              <Sparkles className="w-3.5 h-3.5" />
+              Your judgment, on demand
             </div>
-          )}
+            <h1 className="text-4xl md:text-5xl font-bold text-center text-gray-900 mt-4 mb-2 tracking-tight">
+              Meet personas that think like real people
+            </h1>
+            <div className="text-center mb-2 h-7">
+              <StreamingTagline />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_340px] gap-6 items-start">
+            <section className="space-y-4">
+              <div className="bg-white/60 border border-white rounded-3xl p-3 shadow-[0_24px_80px_-42px_rgba(15,23,42,0.45)] backdrop-blur-sm">
+                <div className="h-[420px]">
+                  <Twin />
+                </div>
+              </div>
+              <div className="text-center text-sm text-gray-500 space-y-2">
+                <p>Start with Sidd&apos;s persona, then build one trained on your own voice and decisions.</p>
+                <Link
+                  href="/create"
+                  className="inline-block text-sky-700 hover:text-sky-900 font-medium underline underline-offset-2"
+                >
+                  Create your own persona →
+                </Link>
+              </div>
+            </section>
+
+            {publicPersonas.length > 0 && (
+              <aside className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-slate-950 text-white shadow-[0_24px_80px_-42px_rgba(15,23,42,0.75)]">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-slate-950 via-slate-950/85 to-transparent z-10" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-950 via-slate-950/85 to-transparent z-10" />
+                <div className="px-5 pt-5 pb-3 border-b border-white/10">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">Public personas</p>
+                  <h2 className="text-lg font-semibold mt-1">Borrow a point of view</h2>
+                  <p className="text-sm text-slate-300 mt-1">Historical and iconic minds rotating beside Sidd&apos;s chat.</p>
+                </div>
+                <div className="relative h-[470px] overflow-hidden">
+                  <div className="animate-personas-marquee py-4">
+                    {marqueePersonas.map((p, index) => (
+                      <Link
+                        key={`${p.twin_id}-${index}`}
+                        href={p.chat_url}
+                        className="group mx-4 mb-4 block rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm hover:bg-white/10 hover:border-sky-300/40 transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0 border border-white/10">
+                            {p.image_url ? (
+                              <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                            ) : (
+                              p.name.split(' ').map(n => n[0]).join('').slice(0, 2)
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-white text-sm">{p.name}</p>
+                            <p className="text-xs text-slate-400 truncate">{p.era}</p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-slate-300 leading-relaxed mt-3">{p.tagline}</p>
+                        <span className="mt-3 inline-flex text-xs font-medium text-sky-300 group-hover:text-sky-200">
+                          Start conversation →
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+                <p className="px-5 pb-5 text-center text-xs text-slate-400">Free preview: 5 questions · Sign up for unlimited access</p>
+              </aside>
+            )}
+          </div>
 
           <footer className="mt-8 text-center text-sm text-gray-500 space-y-2">
-            <p>Your AI Companion Awaits</p>
-            <Link
-              href="/create"
-              className="inline-block text-purple-600 hover:text-purple-800 font-medium underline underline-offset-2"
-            >
-              Create your own persona →
-            </Link>
+            <p>Personas turns expertise into a living conversation.</p>
             <p className="text-xs text-gray-400 pt-4">© 2026 Binosus LLC · All rights reserved</p>
           </footer>
         </div>

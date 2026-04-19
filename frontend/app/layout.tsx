@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Twin",
-  description: "Create your AI twin",
+  title: "Personas | Talk to Great Minds",
+  description: "Build a digital persona, train it with your judgment, and chat with iconic minds.",
 };
 
 export default function RootLayout({
