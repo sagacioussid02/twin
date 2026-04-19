@@ -94,6 +94,43 @@ TWINS_S3_PREFIX = "twins/"
 
 _TWIN_ID_RE = re.compile(r'^[a-f0-9]{32}$')
 
+# ── Connect-to-creator notifications (AWS SES — no passwords, uses IAM role) ──
+_SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "")
+_ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+_ses_client = boto3.client("ses", region_name=os.getenv("DEFAULT_AWS_REGION", "us-east-1")) if _SES_FROM_EMAIL else None
+
+_CONNECT_RE = re.compile(
+    r'\b(connect|reach|contact|talk|speak|meet|email|message)\b.{0,50}'
+    r'\b(creator|owner|builder|maker|sidd|siddharth|you)\b',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+async def _notify_connect_intent(user_message: str, session_id: str, twin_name: str) -> None:
+    """Fire-and-forget SES email when a user asks to connect with the creator."""
+    if not _ses_client or not _ADMIN_EMAILS:
+        return
+    try:
+        body = (
+            f"Someone wants to connect with the creator.\n\n"
+            f"Persona: {twin_name}\n"
+            f"Session: {session_id}\n"
+            f"Time: {datetime.utcnow().isoformat()}Z\n\n"
+            f"Message:\n{user_message}\n"
+        )
+        await asyncio.to_thread(
+            _ses_client.send_email,
+            Source=_SES_FROM_EMAIL,
+            Destination={"ToAddresses": _ADMIN_EMAILS},
+            Message={
+                "Subject": {"Data": f"[Personas] Connect request via {twin_name}"},
+                "Body": {"Text": {"Data": body}},
+            },
+        )
+        print(f"[notify] Connect alert sent for session {session_id}")
+    except Exception as exc:
+        print(f"[notify] Failed to send connect alert: {exc}")
+
 # ── Public personas ────────────────────────────────────────────────────────────
 # Loaded once at startup from backend/public_personas/*.json.
 # These are served to anyone (no auth) and use stable hard-coded twin_ids.
@@ -730,6 +767,21 @@ async def chat(
         if twin_data:
             normalized_sources = _normalize_source_ids(ensure_sources(twin_data))
             twin_data["sources"] = normalized_sources
+
+        # Attempt the email notification with a short timeout so Lambda does not
+        # drop it when the request finishes, while keeping chat latency bounded.
+        if _CONNECT_RE.search(request.message):
+            try:
+                await asyncio.wait_for(
+                    _notify_connect_intent(
+                        request.message, session_id, twin_name or "Sidd"
+                    ),
+                    timeout=1.0,
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        viewer_is_authenticated = chatter_id is not None
         orchestration = run_chat_orchestration(
             twin_data=twin_data,
             sources=normalized_sources,
@@ -742,6 +794,7 @@ async def chat(
             twin_title=twin_title,
             response_style=response_style,
             corrections=corrections,
+            viewer_is_authenticated=viewer_is_authenticated,
         )
         assistant_response = orchestration["answer"]
 
@@ -2876,6 +2929,13 @@ async def resume_generate(
 
             stop_reason = response.get("stopReason", "end_turn")
             response_message = response["output"]["message"]
+            # Bedrock sometimes returns empty text blocks alongside toolUse blocks;
+            # filter them out to avoid ValidationException on the next converse call.
+            if response_message.get("content"):
+                response_message["content"] = [
+                    b for b in response_message["content"]
+                    if not (isinstance(b.get("text"), str) and not b["text"].strip())
+                ]
             messages.append(response_message)
 
             if stop_reason != "tool_use":

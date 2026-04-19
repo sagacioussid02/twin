@@ -190,6 +190,28 @@ resource "aws_iam_role_policy" "lambda_s3" {
   })
 }
 
+resource "aws_iam_role_policy" "lambda_ses" {
+  count = var.ses_from_email != "" ? 1 : 0
+  name  = "${local.name_prefix}-lambda-ses"
+  role  = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "ses:SendEmail"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "ses:FromAddress" = var.ses_from_email
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Lambda function
 resource "aws_lambda_function" "api" {
   filename         = "${path.module}/../backend/lambda-deployment.zip"
@@ -207,9 +229,11 @@ resource "aws_lambda_function" "api" {
       CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
       S3_BUCKET        = aws_s3_bucket.memory.id
       USE_S3           = "true"
-      BEDROCK_MODEL_ID = var.bedrock_model_id
+      BEDROCK_MODEL_ID    = var.bedrock_model_id
       CLERK_JWKS_URL      = var.clerk_jwks_url
       SESSION_HMAC_SECRET = var.session_hmac_secret
+      SES_FROM_EMAIL      = var.ses_from_email
+      ADMIN_EMAILS        = var.admin_emails
     }
   }
 

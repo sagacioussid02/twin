@@ -145,66 +145,63 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_340px] gap-6 items-start">
-            <section className="space-y-4">
-              <div className="bg-white/60 border border-white rounded-3xl p-3 shadow-[0_24px_80px_-42px_rgba(15,23,42,0.45)] backdrop-blur-sm">
-                <div className="h-[420px]">
-                  <Twin />
+          {/* Horizontal personas strip */}
+          {publicPersonas.length > 0 && (
+            <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50/60 px-5 pt-4 pb-3 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-indigo-500">Public personas</p>
+                  <h2 className="text-sm font-semibold text-gray-800 mt-0.5">Borrow a point of view</h2>
+                </div>
+                <p className="text-xs text-gray-400 hidden sm:block">Free preview: 5 questions · Sign up for unlimited access</p>
+              </div>
+              <div className="overflow-hidden relative">
+                <div className="pointer-events-none absolute left-0 inset-y-0 w-8 bg-gradient-to-r from-indigo-50/60 to-transparent z-10" />
+                <div className="pointer-events-none absolute right-0 inset-y-0 w-8 bg-gradient-to-l from-indigo-50/60 to-transparent z-10" />
+                <div className="flex animate-marquee-x" style={{ width: 'max-content' }}>
+                  {marqueePersonas.map((p, index) => (
+                    <Link
+                      key={`${p.twin_id}-${index}`}
+                      href={p.chat_url}
+                      className="group flex-shrink-0 mr-3 flex items-center gap-3 rounded-xl border border-indigo-100 bg-white px-4 py-2.5 hover:border-indigo-300 hover:shadow-sm transition-all"
+                      style={{ minWidth: '200px' }}
+                    >
+                      <PersonaAvatar
+                        name={p.name}
+                        seed={p.twin_id}
+                        imageUrl={p.image_url}
+                        className="w-9 h-9 shrink-0"
+                        textClassName="text-xs"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm truncate">{p.name}</p>
+                        <p className="text-xs text-gray-400 truncate">{p.era}</p>
+                        <span className="text-xs text-indigo-500 group-hover:text-indigo-700 font-medium">Chat →</span>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
               </div>
-              <div className="text-center text-sm text-gray-500 space-y-2">
-                <p>Start with Sidd&apos;s persona, then build one trained on your own voice and decisions.</p>
-                <Link
-                  href="/create"
-                  className="inline-block text-sky-700 hover:text-sky-900 font-medium underline underline-offset-2"
-                >
-                  Create your own persona →
-                </Link>
-              </div>
-            </section>
+            </div>
+          )}
 
-            {publicPersonas.length > 0 && (
-              <aside className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-slate-950 text-white shadow-[0_24px_80px_-42px_rgba(15,23,42,0.75)]">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-slate-950 via-slate-950/85 to-transparent z-10" />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-950 via-slate-950/85 to-transparent z-10" />
-                <div className="px-5 pt-5 pb-3 border-b border-white/10">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">Public personas</p>
-                  <h2 className="text-lg font-semibold mt-1">Borrow a point of view</h2>
-                  <p className="text-sm text-slate-300 mt-1">Historical and iconic minds rotating beside Sidd&apos;s chat.</p>
-                </div>
-                <div className="relative h-[470px] overflow-hidden">
-                  <div className="animate-personas-marquee py-4">
-                    {marqueePersonas.map((p, index) => (
-                      <Link
-                        key={`${p.twin_id}-${index}`}
-                        href={p.chat_url}
-                        className="group mx-4 mb-4 block rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm hover:bg-white/10 hover:border-sky-300/40 transition-all"
-                      >
-                        <div className="flex items-center gap-3">
-                          <PersonaAvatar
-                            name={p.name}
-                            seed={p.twin_id}
-                            imageUrl={p.image_url}
-                            className="w-14 h-14 shrink-0 border border-white/10"
-                            textClassName="text-sm"
-                          />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-white text-sm">{p.name}</p>
-                            <p className="text-xs text-slate-400 truncate">{p.era}</p>
-                          </div>
-                        </div>
-                        <p className="text-sm text-slate-300 leading-relaxed mt-3">{p.tagline}</p>
-                        <span className="mt-3 inline-flex text-xs font-medium text-sky-300 group-hover:text-sky-200">
-                          Start conversation →
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-                <p className="px-5 pb-5 text-center text-xs text-slate-400">Free preview: 5 questions · Sign up for unlimited access</p>
-              </aside>
-            )}
-          </div>
+          {/* Main chat */}
+          <section className="space-y-4">
+            <div className="bg-white/60 border border-white rounded-3xl p-3 shadow-[0_24px_80px_-42px_rgba(15,23,42,0.45)] backdrop-blur-sm">
+              <div className="h-[420px]">
+                <Twin />
+              </div>
+            </div>
+            <div className="text-center text-sm text-gray-500 space-y-2">
+              <p>Start with Sidd&apos;s persona, then build one trained on your own voice and decisions.</p>
+              <Link
+                href="/create"
+                className="inline-block text-sky-700 hover:text-sky-900 font-medium underline underline-offset-2"
+              >
+                Create your own persona →
+              </Link>
+            </div>
+          </section>
 
           <footer className="mt-8 text-center text-sm text-gray-500 space-y-2">
             <p>Personas turns expertise into a living conversation.</p>

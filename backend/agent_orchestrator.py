@@ -25,6 +25,7 @@ def run_chat_orchestration(
     twin_title: Optional[str],
     response_style: str,
     corrections: Optional[List[dict]],
+    viewer_is_authenticated: bool = False,
 ) -> Dict[str, Any]:
     """Coordinate router, retrieval, responder, and critic for chat."""
     route = route_message(user_message, conversation)
@@ -52,6 +53,7 @@ def run_chat_orchestration(
         corrections=corrections,
         retrieved_sources=retrieved_sources,
         query_type=str(route["query_type"]),
+        viewer_is_authenticated=viewer_is_authenticated,
     )
 
     critic = (

@@ -55,3 +55,17 @@
 .animate-personas-marquee:hover {
   animation-play-state: paused;
 }
+
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.animate-marquee-x {
+  animation: marquee-x 30s linear infinite;
+  will-change: transform;
+}
+
+.animate-marquee-x:hover {
+  animation-play-state: paused;
+}

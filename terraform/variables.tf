@@ -70,3 +70,15 @@ variable "clerk_jwks_url" {
     error_message = "clerk_jwks_url must be set to the Clerk JWKS URL; the backend requires CLERK_JWKS_URL for authenticated routes."
   }
 }
+
+variable "ses_from_email" {
+  description = "SES-verified sender email for connect-to-creator notifications (leave empty to disable)"
+  type        = string
+  default     = ""
+}
+
+variable "admin_emails" {
+  description = "Comma-separated admin emails to notify on connect requests, e.g. you@example.com"
+  type        = string
+  default     = ""
+}

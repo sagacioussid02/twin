@@ -10,9 +10,10 @@ from typing import Optional, List
 full_name = facts.get("full_name", "Professional")
 name = facts.get("name", "Twin")
 
-# Fields to suppress from facts before injecting into the system prompt.
-# Keeps PII (email, phone, direct URLs) out of the LLM context.
-_FACTS_PII_KEYS = {"email", "phone", "linkedin", "twitter", "address"}
+# PII keys always suppressed (even for authenticated users).
+_FACTS_PII_KEYS_ALWAYS = {"email", "phone", "address"}
+# Additional PII keys suppressed only for anonymous (unauthenticated) viewers.
+_FACTS_PII_KEYS_ANON_EXTRA = {"linkedin", "twitter"}
 
 _EMAIL_RE = _re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
 _PHONE_RE = _re.compile(r'\b(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b')
@@ -25,9 +26,15 @@ def _redact_pii(text: str) -> str:
     return text
 
 
-def _safe_facts(facts_dict: dict) -> dict:
-    """Return facts with PII keys removed."""
-    return {k: v for k, v in facts_dict.items() if k not in _FACTS_PII_KEYS}
+def _safe_facts(facts_dict: dict, viewer_is_authenticated: bool = False) -> dict:
+    """Return facts with PII keys removed.
+
+    Authenticated viewers see LinkedIn/Twitter URLs; email/phone always redacted.
+    """
+    suppress = set(_FACTS_PII_KEYS_ALWAYS)
+    if not viewer_is_authenticated:
+        suppress |= _FACTS_PII_KEYS_ANON_EXTRA
+    return {k: v for k, v in facts_dict.items() if k not in suppress}
 
 _RESPONSE_STYLES = {
     "concise": "Keep every response to 1-3 sentences. Be direct. One idea per reply.",
@@ -42,6 +49,7 @@ def prompt(
     twin_title: Optional[str] = None,
     response_style: str = "balanced",
     corrections: Optional[List[dict]] = None,
+    viewer_is_authenticated: bool = False,
 ):
     """
     Build the system prompt.
@@ -64,7 +72,7 @@ def prompt(
         factual_context = _build_from_personality_model(personality_model, twin_title or "")
     else:
         # Sidd's twin: build from data files
-        factual_context = _build_from_data_files()
+        factual_context = _build_from_data_files(viewer_is_authenticated=viewer_is_authenticated)
 
     # ── Decision intelligence section ────────────────────────────────────────
     decision_section = _build_decision_section(personality_model, display_name)
@@ -245,10 +253,10 @@ def _build_from_personality_model(personality_model: dict, title: str) -> str:
     return "\n".join(lines)
 
 
-def _build_from_data_files() -> str:
+def _build_from_data_files(viewer_is_authenticated: bool = False) -> str:
     sections = []
 
-    sections.append(f"**Basic Info:** {_safe_facts(facts)}")
+    sections.append(f"**Basic Info:** {_safe_facts(facts, viewer_is_authenticated=viewer_is_authenticated)}")
 
     if summary:
         sections.append(f"**Summary:** {summary}")

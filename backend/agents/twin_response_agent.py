@@ -22,6 +22,7 @@ def generate_twin_response(
     corrections: Optional[List[dict]] = None,
     retrieved_sources: Optional[List[dict]] = None,
     query_type: str = "factual",
+    viewer_is_authenticated: bool = False,
 ) -> str:
     """Generate the twin's answer from personality context plus retrieved evidence."""
     messages = []
@@ -32,6 +33,7 @@ def generate_twin_response(
         twin_title=twin_title,
         response_style=response_style,
         corrections=corrections,
+        viewer_is_authenticated=viewer_is_authenticated,
     )
     messages.append({
         "role": "user",
