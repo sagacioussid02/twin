@@ -2676,6 +2676,7 @@ async def resume_message(
         if messages and messages[0]["role"] != "user":
             messages.insert(0, {"role": "user", "content": [{"text": "hi, let's start"}]})
 
+    raw: Optional[str] = None
     try:
         response = await asyncio.to_thread(
             bedrock_client.converse,
@@ -2711,10 +2712,10 @@ async def resume_message(
 
         covered_set = set(covered)
         fallback_done = set(_ALL_RESUME_TOPICS).issubset(covered_set)
-        fallback_message = raw if "raw" in locals() else cont_msg
+        fallback_message = raw if raw is not None else cont_msg
         merged_fallback_topics = set(covered_set)
 
-        if "raw" in locals():
+        if raw is not None:
             try:
                 parsed = _extract_json_object(raw)
                 if isinstance(parsed, dict):
