@@ -29,6 +29,7 @@ jobs:
           uv export --no-dev --format requirements-txt | \
             pip install -r /dev/stdin -t lambda-package/ --quiet
           cp *.py lambda-package/
+          if [ -d agents ]; then cp -r agents lambda-package/; fi
           cp -r data lambda-package/
           cp -r personalities lambda-package/
           cp -r public_personas lambda-package/

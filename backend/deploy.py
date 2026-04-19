@@ -42,7 +42,15 @@ def main():
 
     # Copy application files
     print("Copying application files...")
-    for file in ["server.py", "lambda_handler.py", "context.py", "resources.py", "personality_agent.py"]:
+    for file in [
+        "server.py",
+        "lambda_handler.py",
+        "context.py",
+        "resources.py",
+        "personality_agent.py",
+        "source_memory.py",
+        "agent_orchestrator.py",
+    ]:
         if os.path.exists(file):
             shutil.copy2(file, "lambda-package/")
     
@@ -53,6 +61,10 @@ def main():
     # Copy personalities directory (required by personality_agent.py)
     if os.path.exists("personalities"):
         shutil.copytree("personalities", "lambda-package/personalities")
+
+    # Copy agents directory (required by agent_orchestrator.py on newer builds)
+    if os.path.exists("agents"):
+        shutil.copytree("agents", "lambda-package/agents")
 
     # Copy twins directory (seed/example twins)
     if os.path.exists("twins"):
