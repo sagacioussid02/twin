@@ -7,6 +7,7 @@ import { useAuth } from '@clerk/nextjs';
 import { Send, User, Flag, Check } from 'lucide-react';
 import Link from 'next/link';
 import AppNav from '@/components/app-nav';
+import PersonaAvatar from '@/components/persona-avatar';
 
 interface Message {
   id: string;
@@ -253,9 +254,12 @@ function TwinChat() {
           {/* Header */}
           <div className="mb-4">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xl font-bold shrink-0">
-                {initials}
-              </div>
+              <PersonaAvatar
+                name={profile.name}
+                seed={profile.twin_id}
+                className="w-14 h-14 shrink-0 border border-white/70 shadow-sm"
+                textClassName="text-base"
+              />
               <div className="flex-1 min-w-0">
                 <h1 className="text-2xl font-bold text-gray-800">{profile.name}&apos;s AI Twin</h1>
                 {profile.title && <p className="text-sm text-gray-500 mt-0.5">{profile.title}</p>}
