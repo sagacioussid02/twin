@@ -18,7 +18,7 @@ export default function AppNav() {
   return (
     <header className="bg-white/80 backdrop-blur border-b border-gray-200/80 px-5 py-3 flex items-center justify-between shrink-0 sticky top-0 z-30">
       <div className="flex items-center gap-5">
-        <Link href="/dashboard" className="flex items-center gap-2 shrink-0 group">
+        <Link href="/" className="flex items-center gap-2 shrink-0 group">
           <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm group-hover:shadow-purple-200 transition-shadow">
             <span className="text-white text-xs font-bold tracking-tight">P</span>
           </div>
