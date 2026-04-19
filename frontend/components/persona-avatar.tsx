@@ -40,7 +40,7 @@ export default function PersonaAvatar({
   className = 'w-14 h-14',
   textClassName = 'text-sm',
 }: Props) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
 
   const design = useMemo(() => {
     const hash = hashSeed(seed || name);
@@ -54,7 +54,7 @@ export default function PersonaAvatar({
   }, [name, seed]);
 
   const initials = initialsForName(name);
-  const showImage = !!imageUrl && !imageFailed;
+  const showImage = !!imageUrl && failedImageUrl !== imageUrl;
 
   return (
     <div className={`relative overflow-hidden rounded-2xl isolate bg-gradient-to-br ${design.palette.bg} ${className}`}>
@@ -63,7 +63,7 @@ export default function PersonaAvatar({
           src={imageUrl}
           alt={name}
           className="w-full h-full object-cover"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImageUrl(imageUrl ?? null)}
         />
       ) : (
         <>
