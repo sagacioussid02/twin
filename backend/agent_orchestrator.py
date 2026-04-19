@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from agents.critic_agent import review_grounded_answer
 from agents.router_agent import route_message
+from agents.twin_response_agent import generate_twin_response
 from source_memory import ensure_sources, retrieve_relevant_sources
 
 
@@ -12,7 +13,8 @@ def run_chat_orchestration(
     twin_data: Optional[dict],
     user_message: str,
     conversation: List[Dict[str, Any]],
-    responder: Callable[[List[Dict[str, Any]], str, Optional[dict], Optional[str], Optional[str], str, Optional[List[dict]], Optional[List[dict]], str], str],
+    bedrock_client,
+    model_id: str,
     personality_model: Optional[dict],
     twin_name: Optional[str],
     twin_title: Optional[str],
@@ -32,16 +34,18 @@ def run_chat_orchestration(
         else []
     )
 
-    answer = responder(
-        conversation,
-        user_message,
-        personality_model,
-        twin_name,
-        twin_title,
-        response_style,
-        corrections,
-        retrieved_sources,
-        str(route["query_type"]),
+    answer = generate_twin_response(
+        bedrock_client=bedrock_client,
+        model_id=model_id,
+        conversation=conversation,
+        user_message=user_message,
+        personality_model=personality_model,
+        twin_name=twin_name,
+        twin_title=twin_title,
+        response_style=response_style,
+        corrections=corrections,
+        retrieved_sources=retrieved_sources,
+        query_type=str(route["query_type"]),
     )
 
     critic = (

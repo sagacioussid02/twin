@@ -24,14 +24,12 @@ import httpx
 import jwt
 from urllib.parse import quote
 from agent_orchestrator import run_chat_orchestration
-from context import prompt
 from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
 from source_memory import (
     build_correction_source,
     build_deepen_sources,
     build_initial_sources,
     ensure_sources,
-    format_retrieved_sources,
     merge_sources,
 )
 
@@ -603,88 +601,6 @@ def save_conversation(
             json.dump(data, f, indent=2)
 
 
-def call_bedrock(
-    conversation: List[Dict],
-    user_message: str,
-    personality_model: Optional[dict] = None,
-    twin_name: Optional[str] = None,
-    twin_title: Optional[str] = None,
-    response_style: str = "balanced",
-    corrections: Optional[List[dict]] = None,
-    retrieved_sources: Optional[List[dict]] = None,
-    query_type: str = "factual",
-) -> str:
-    """Call AWS Bedrock with conversation history"""
-
-    # Build messages in Bedrock format
-    messages = []
-
-    system_prompt = prompt(
-        personality_model=personality_model,
-        twin_name=twin_name,
-        twin_title=twin_title,
-        response_style=response_style,
-        corrections=corrections,
-    )
-    messages.append({
-        "role": "user",
-        "content": [{"text": f"System: {system_prompt}"}]
-    })
-
-    if retrieved_sources:
-        evidence_block = format_retrieved_sources(retrieved_sources)
-        messages.append({
-            "role": "user",
-            "content": [{
-                "text": (
-                    f"The user's latest request is classified as: {query_type}.\n"
-                    f"{evidence_block}\n"
-                    "If the evidence does not fully answer the question, say what is grounded and what is inferred."
-                )
-            }]
-        })
-
-    # Add conversation history (limit to last 25 exchanges)
-    for msg in conversation[-50:]:
-        messages.append({
-            "role": msg["role"],
-            "content": [{"text": msg["content"]}]
-        })
-
-    # Add current user message
-    messages.append({
-        "role": "user",
-        "content": [{"text": user_message}]
-    })
-
-    try:
-        # Call Bedrock using the converse API
-        response = bedrock_client.converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=messages,
-            inferenceConfig={
-                "maxTokens": 2000,
-                "temperature": 0.7,
-                "topP": 0.9
-            }
-        )
-
-        # Extract the response text
-        return response["output"]["message"]["content"][0]["text"]
-
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == 'ValidationException':
-            print(f"Bedrock validation error: {e}")
-            raise HTTPException(status_code=400, detail="Invalid message format for Bedrock")
-        elif error_code == 'AccessDeniedException':
-            print(f"Bedrock access denied: {e}")
-            raise HTTPException(status_code=403, detail="Access denied to Bedrock model")
-        else:
-            print(f"Bedrock error: {e}")
-            raise HTTPException(status_code=500, detail="AI service error")
-
-
 @app.get("/")
 async def root():
     return {
@@ -816,7 +732,8 @@ async def chat(
             twin_data=twin_data,
             user_message=request.message,
             conversation=conversation,
-            responder=call_bedrock,
+            bedrock_client=bedrock_client,
+            model_id=BEDROCK_MODEL_ID,
             personality_model=personality_model,
             twin_name=twin_name,
             twin_title=twin_title,
