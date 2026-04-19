@@ -2709,12 +2709,28 @@ async def resume_message(
         done_msg = "Perfect — I have enough to generate your resume now."
         cont_msg = "Got it — let me keep going. Could you tell me a bit more?"
 
-        fallback_done = False
+        fallback_done = set(_ALL_RESUME_TOPICS).issubset(set(covered))
         fallback_message = raw if "raw" in locals() else cont_msg
+        merged_fallback_topics = set(covered)
 
         if "raw" in locals():
+            try:
+                parsed = _extract_json_object(raw)
+                if isinstance(parsed, dict):
+                    if parsed.get("done") is True:
+                        fallback_done = True
+                    parsed_topics = parsed.get("topics_covered")
+                    if isinstance(parsed_topics, list):
+                        merged_fallback_topics |= {t for t in parsed_topics if t in _ALL_RESUME_TOPICS}
+                    parsed_message = parsed.get("message")
+                    if isinstance(parsed_message, str) and parsed_message.strip():
+                        fallback_message = parsed_message.strip()
+            except (ValueError, json.JSONDecodeError):
+                pass
+
             if raw.strip().startswith("{") or raw.strip().startswith("```"):
-                fallback_message = cont_msg
+                if fallback_message == raw:
+                    fallback_message = cont_msg
             else:
                 last_brace = raw.rfind('{')
                 if last_brace > len(raw) // 2:
@@ -2729,7 +2745,13 @@ async def resume_message(
                 if not fallback_message:
                     fallback_message = done_msg if fallback_done else cont_msg
 
-        fallback_topics = list(_ALL_RESUME_TOPICS) if fallback_done else covered
+        if set(_ALL_RESUME_TOPICS).issubset(merged_fallback_topics):
+            fallback_done = True
+        fallback_topics = (
+            list(_ALL_RESUME_TOPICS)
+            if fallback_done
+            else [t for t in _ALL_RESUME_TOPICS if t in merged_fallback_topics]
+        )
         return {
             "message": fallback_message,
             "field_updates": {},
