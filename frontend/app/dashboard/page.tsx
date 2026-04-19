@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Plus, MessageSquare, ExternalLink, Sparkles, FileText } from "lucide-react";
 import AppNav from "@/components/app-nav";
 import { useEffect, useState } from "react";
+import PersonaAvatar from "@/components/persona-avatar";
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -68,17 +69,17 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <AppNav />
 
-      <main className="max-w-4xl mx-auto px-6 py-10 flex-1">
+      <main className="max-w-6xl mx-auto px-6 py-12 flex-1">
         {/* Welcome */}
-        <div className="mb-8">
-          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full mb-3">
+        <div className="mb-10">
+          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-100 text-purple-700 text-sm font-medium px-3.5 py-1.5 rounded-full mb-4">
             <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
             Your workspace
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-gray-900">
             Welcome back{user?.firstName ? `, ${user.firstName}` : ""}
           </h1>
-          <p className="text-gray-500 mt-1">Build, refine, and share your personas</p>
+          <p className="text-base text-gray-500 mt-2">Build, refine, and share your personas</p>
         </div>
 
         {/* Twins grid */}
@@ -90,55 +91,61 @@ export default function DashboardPage() {
         {loading ? (
           <div className="text-gray-400 text-sm">Loading...</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Existing twins */}
             {twins.map(twin => (
-              <div key={twin.twin_id} className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3">
-                <div className="flex items-start justify-between">
+              <div key={twin.twin_id} className="bg-white rounded-2xl border border-gray-200 p-6 flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-start gap-4">
+                  <PersonaAvatar
+                    name={twin.name}
+                    seed={twin.twin_id}
+                    className="w-16 h-16 shrink-0 border border-gray-100 shadow-sm"
+                    textClassName="text-base"
+                  />
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900">{twin.name}</h3>
-                    <p className="text-sm text-gray-500 mt-0.5">{twin.title}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <h3 className="font-semibold text-xl text-gray-900">{twin.name}</h3>
+                    <p className="text-base text-gray-500 mt-1">{twin.title}</p>
+                    <div className="flex flex-wrap gap-2 mt-3">
                       {twin.archetype_display_name && (
-                        <span className="text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-full">
+                        <span className="text-sm text-purple-600 bg-purple-50 border border-purple-100 px-2.5 py-1 rounded-full">
                           {twin.archetype_display_name}
                         </span>
                       )}
                       {twin.depth_score && DEPTH_STYLES[twin.depth_score] && (
-                        <span className={`text-xs border px-2 py-0.5 rounded-full ${DEPTH_STYLES[twin.depth_score].pill}`}>
+                        <span className={`text-sm border px-2.5 py-1 rounded-full ${DEPTH_STYLES[twin.depth_score].pill}`}>
                           {DEPTH_STYLES[twin.depth_score].label}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2 mt-auto pt-2 border-t border-gray-100">
+                <div className="flex gap-3 mt-auto pt-3 border-t border-gray-100">
                   <Link
                     href={twin.chat_url}
-                    className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-800 font-medium"
+                    className="flex items-center gap-1.5 text-sm text-purple-600 hover:text-purple-800 font-medium"
                   >
-                    <MessageSquare className="w-3.5 h-3.5" />
+                    <MessageSquare className="w-4 h-4" />
                     Chat
                   </Link>
                   <Link
                     href={`/deepen?twin_id=${twin.twin_id}`}
-                    className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+                    className="flex items-center gap-1.5 text-sm text-indigo-500 hover:text-indigo-700 font-medium"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Sparkles className="w-4 h-4" />
                     Deepen
                   </Link>
                   <Link
                     href={`/resume?twin_id=${twin.twin_id}`}
-                    className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-800 font-medium"
+                    className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-800 font-medium"
                   >
-                    <FileText className="w-3.5 h-3.5" />
+                    <FileText className="w-4 h-4" />
                     Resume
                   </Link>
                   <button
                     onClick={() => navigator.clipboard.writeText(`${window.location.origin}${twin.chat_url}`)}
-                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 ml-auto"
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 ml-auto"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ExternalLink className="w-4 h-4" />
                     Copy link
                   </button>
                 </div>
@@ -149,15 +156,15 @@ export default function DashboardPage() {
             {twins.length < 2 && (
               <Link
                 href="/create"
-                className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-5 flex flex-col items-center justify-center gap-2 hover:border-purple-400 hover:bg-purple-50 transition-colors group"
+                className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-7 min-h-[220px] flex flex-col items-center justify-center gap-3 hover:border-purple-400 hover:bg-purple-50 transition-colors group"
               >
-                <div className="w-10 h-10 rounded-full bg-gray-100 group-hover:bg-purple-100 flex items-center justify-center transition-colors">
-                  <Plus className="w-5 h-5 text-gray-400 group-hover:text-purple-600" />
+                <div className="w-14 h-14 rounded-full bg-gray-100 group-hover:bg-purple-100 flex items-center justify-center transition-colors">
+                  <Plus className="w-7 h-7 text-gray-400 group-hover:text-purple-600" />
                 </div>
-                <span className="text-sm font-medium text-gray-500 group-hover:text-purple-600">
+                <span className="text-base font-medium text-gray-500 group-hover:text-purple-600">
                   Create a new persona
                 </span>
-                <span className="text-xs text-gray-400">
+                <span className="text-sm text-gray-400">
                   {twins.length}/2 twins used
                 </span>
               </Link>

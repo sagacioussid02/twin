@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
+import PersonaAvatar from '@/components/persona-avatar';
 import Twin from '@/components/twin';
 import { Sparkles } from 'lucide-react';
 
@@ -180,13 +181,13 @@ export default function Home() {
                         className="group mx-4 mb-4 block rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm hover:bg-white/10 hover:border-sky-300/40 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0 border border-white/10">
-                            {p.image_url ? (
-                              <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                            ) : (
-                              p.name.split(' ').map(n => n[0]).join('').slice(0, 2)
-                            )}
-                          </div>
+                          <PersonaAvatar
+                            name={p.name}
+                            seed={p.twin_id}
+                            imageUrl={p.image_url}
+                            className="w-14 h-14 shrink-0 border border-white/10"
+                            textClassName="text-sm"
+                          />
                           <div className="min-w-0">
                             <p className="font-semibold text-white text-sm">{p.name}</p>
                             <p className="text-xs text-slate-400 truncate">{p.era}</p>
