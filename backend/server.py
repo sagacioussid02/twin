@@ -726,11 +726,13 @@ async def chat(
             response_style = personality_model.get("_context", {}).get("responseStyle", response_style)
 
         corrections = twin_data.get("corrections") if twin_data else None
+        normalized_sources = None
         if twin_data:
-            twin_data["sources"] = _normalize_source_ids(ensure_sources(twin_data))
+            normalized_sources = _normalize_source_ids(ensure_sources(twin_data))
+            twin_data["sources"] = normalized_sources
         orchestration = run_chat_orchestration(
             twin_data=twin_data,
-            sources=twin_data.get("sources") if twin_data else None,
+            sources=normalized_sources,
             user_message=request.message,
             conversation=conversation,
             bedrock_client=bedrock_client,

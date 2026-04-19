@@ -28,7 +28,8 @@ def run_chat_orchestration(
 ) -> Dict[str, Any]:
     """Coordinate router, retrieval, responder, and critic for chat."""
     route = route_message(user_message, conversation)
-    sources = sources if sources is not None else (ensure_sources(twin_data) if twin_data else [])
+    if sources is None:
+        sources = ensure_sources(twin_data) if twin_data else []
     retrieved_sources = (
         retrieve_relevant_sources(
             user_message,
