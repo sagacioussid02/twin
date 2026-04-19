@@ -23,6 +23,7 @@ REGION = os.getenv("DEFAULT_AWS_REGION", "us-east-1")
 # Requires model access enabled in AWS Console → Bedrock → Model access
 # Enable "Amazon Nova Canvas" (amazon.nova-canvas-v1:0)
 MODEL_ID = "amazon.nova-canvas-v1:0"
+IMAGE_EXT = "jpg"
 
 OUT_DIR = Path(__file__).parent.parent.parent / "frontend" / "public" / "personas"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,10 +94,10 @@ def generate_image(bedrock, prompt: str) -> bytes:
 def update_json_image_url(json_path: Path, slug: str) -> None:
     with open(json_path) as f:
         data = json.load(f)
-    data["image_url"] = f"/personas/{slug}.png"
+    data["image_url"] = f"/personas/{slug}.{IMAGE_EXT}"
     with open(json_path, "w") as f:
         json.dump(data, f, indent=2)
-    print(f"  Updated {json_path.name} → image_url=/personas/{slug}.png")
+    print(f"  Updated {json_path.name} → image_url=/personas/{slug}.{IMAGE_EXT}")
 
 
 def main():
@@ -105,7 +106,7 @@ def main():
 
     for persona in PERSONAS:
         slug = persona["slug"]
-        out_path = OUT_DIR / f"{slug}.png"
+        out_path = OUT_DIR / f"{slug}.{IMAGE_EXT}"
 
         if out_path.exists():
             print(f"[{slug}] Already exists at {out_path}, skipping generation.")
@@ -125,7 +126,7 @@ def main():
             print(f"  Tip: ensure {MODEL_ID} is enabled in Bedrock model access for {REGION}")
             sys.exit(1)
 
-    print("\nDone. Commit the generated .png files and updated JSON files.")
+    print(f"\nDone. Commit the generated .{IMAGE_EXT} files and updated JSON files.")
 
 
 if __name__ == "__main__":
