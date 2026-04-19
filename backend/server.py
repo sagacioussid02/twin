@@ -2676,6 +2676,7 @@ async def resume_message(
         if messages and messages[0]["role"] != "user":
             messages.insert(0, {"role": "user", "content": [{"text": "hi, let's start"}]})
 
+    raw: Optional[str] = None
     try:
         response = await asyncio.to_thread(
             bedrock_client.converse,
@@ -2706,11 +2707,58 @@ async def resume_message(
 
     except (ValueError, json.JSONDecodeError) as exc:
         print(f"Resume interview JSON parse error: {exc!r}")
+        done_msg = "Perfect — I have enough to generate your resume now."
+        cont_msg = "Got it — let me keep going. Could you tell me a bit more?"
+
+        covered_set = set(covered)
+        fallback_done = set(_ALL_RESUME_TOPICS).issubset(covered_set)
+        fallback_message = raw if raw is not None else cont_msg
+        merged_fallback_topics = set(covered_set)
+
+        if raw is not None:
+            try:
+                parsed = _extract_json_object(raw)
+                if isinstance(parsed, dict):
+                    if parsed.get("done") is True:
+                        fallback_done = True
+                    parsed_topics = parsed.get("topics_covered")
+                    if isinstance(parsed_topics, list):
+                        merged_fallback_topics |= {t for t in parsed_topics if t in _ALL_RESUME_TOPICS}
+                    parsed_message = parsed.get("message")
+                    if isinstance(parsed_message, str) and parsed_message.strip():
+                        fallback_message = parsed_message.strip()
+            except (ValueError, json.JSONDecodeError) as parse_exc:
+                print(f"Resume interview fallback JSON parse error: {parse_exc!r}")
+
+            if raw.strip().startswith("{") or raw.strip().startswith("```"):
+                if fallback_message == raw:
+                    fallback_message = cont_msg
+            else:
+                last_brace = raw.rfind('{')
+                if last_brace > len(raw) // 2:
+                    try:
+                        fragment = json.loads(raw[last_brace:])
+                        if isinstance(fragment, dict) and "done" in fragment:
+                            if fragment.get("done") is True:
+                                fallback_done = True
+                            fallback_message = raw[:last_brace].strip()
+                    except json.JSONDecodeError:
+                        pass
+                if not fallback_message:
+                    fallback_message = done_msg if fallback_done else cont_msg
+
+        if set(_ALL_RESUME_TOPICS).issubset(merged_fallback_topics):
+            fallback_done = True
+        fallback_topics = (
+            list(_ALL_RESUME_TOPICS)
+            if fallback_done
+            else [t for t in _ALL_RESUME_TOPICS if t in merged_fallback_topics]
+        )
         return {
-            "message": "Got it — let me keep going. Could you tell me a bit more?",
+            "message": fallback_message,
             "field_updates": {},
-            "topics_covered": covered,
-            "done": False,
+            "topics_covered": fallback_topics,
+            "done": fallback_done,
         }
     except Exception as exc:
         print(f"Unexpected error in /resume/message: {exc}")
