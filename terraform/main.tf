@@ -511,3 +511,21 @@ resource "aws_apigatewayv2_route" "post_twin_deepen_message" {
   route_key = "POST /twin/{twin_id}/deepen/message"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
+
+resource "aws_apigatewayv2_route" "post_resume_message" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /resume/message"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "post_resume_parse_jd" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /resume/parse-jd"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "post_resume_generate" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /resume/generate"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
