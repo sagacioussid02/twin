@@ -23,18 +23,14 @@ import hashlib
 import httpx
 import jwt
 from urllib.parse import quote
-from context import prompt
+from agent_orchestrator import run_chat_orchestration
 from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
 from source_memory import (
     build_correction_source,
     build_deepen_sources,
-    build_grounding_summary,
     build_initial_sources,
-    classify_query,
     ensure_sources,
-    format_retrieved_sources,
     merge_sources,
-    retrieve_relevant_sources,
 )
 
 # Load environment variables
@@ -605,88 +601,6 @@ def save_conversation(
             json.dump(data, f, indent=2)
 
 
-def call_bedrock(
-    conversation: List[Dict],
-    user_message: str,
-    personality_model: Optional[dict] = None,
-    twin_name: Optional[str] = None,
-    twin_title: Optional[str] = None,
-    response_style: str = "balanced",
-    corrections: Optional[List[dict]] = None,
-    retrieved_sources: Optional[List[dict]] = None,
-    query_type: str = "factual",
-) -> str:
-    """Call AWS Bedrock with conversation history"""
-
-    # Build messages in Bedrock format
-    messages = []
-
-    system_prompt = prompt(
-        personality_model=personality_model,
-        twin_name=twin_name,
-        twin_title=twin_title,
-        response_style=response_style,
-        corrections=corrections,
-    )
-    messages.append({
-        "role": "user",
-        "content": [{"text": f"System: {system_prompt}"}]
-    })
-
-    if retrieved_sources:
-        evidence_block = format_retrieved_sources(retrieved_sources)
-        messages.append({
-            "role": "user",
-            "content": [{
-                "text": (
-                    f"The user's latest request is classified as: {query_type}.\n"
-                    f"{evidence_block}\n"
-                    "If the evidence does not fully answer the question, say what is grounded and what is inferred."
-                )
-            }]
-        })
-
-    # Add conversation history (limit to last 25 exchanges)
-    for msg in conversation[-50:]:
-        messages.append({
-            "role": msg["role"],
-            "content": [{"text": msg["content"]}]
-        })
-
-    # Add current user message
-    messages.append({
-        "role": "user",
-        "content": [{"text": user_message}]
-    })
-
-    try:
-        # Call Bedrock using the converse API
-        response = bedrock_client.converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=messages,
-            inferenceConfig={
-                "maxTokens": 2000,
-                "temperature": 0.7,
-                "topP": 0.9
-            }
-        )
-
-        # Extract the response text
-        return response["output"]["message"]["content"][0]["text"]
-
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == 'ValidationException':
-            print(f"Bedrock validation error: {e}")
-            raise HTTPException(status_code=400, detail="Invalid message format for Bedrock")
-        elif error_code == 'AccessDeniedException':
-            print(f"Bedrock access denied: {e}")
-            raise HTTPException(status_code=403, detail="Access denied to Bedrock model")
-        else:
-            print(f"Bedrock error: {e}")
-            raise HTTPException(status_code=500, detail="AI service error")
-
-
 @app.get("/")
 async def root():
     return {
@@ -812,24 +726,24 @@ async def chat(
             response_style = personality_model.get("_context", {}).get("responseStyle", response_style)
 
         corrections = twin_data.get("corrections") if twin_data else None
-        query_type = classify_query(request.message)
-        sources = ensure_sources(twin_data) if twin_data else []
+        normalized_sources = None
         if twin_data:
-            sources = _normalize_source_ids(sources)
-            twin_data["sources"] = sources
-        retrieved_sources = retrieve_relevant_sources(request.message, sources) if twin_data else []
-        grounding_summary = build_grounding_summary(query_type, retrieved_sources) if twin_data else None
-        assistant_response = call_bedrock(
-            conversation,
-            request.message,
-            personality_model,
-            twin_name,
-            twin_title,
-            response_style,
+            normalized_sources = _normalize_source_ids(ensure_sources(twin_data))
+            twin_data["sources"] = normalized_sources
+        orchestration = run_chat_orchestration(
+            twin_data=twin_data,
+            sources=normalized_sources,
+            user_message=request.message,
+            conversation=conversation,
+            bedrock_client=bedrock_client,
+            model_id=BEDROCK_MODEL_ID,
+            personality_model=personality_model,
+            twin_name=twin_name,
+            twin_title=twin_title,
+            response_style=response_style,
             corrections=corrections,
-            retrieved_sources=retrieved_sources,
-            query_type=query_type,
         )
+        assistant_response = orchestration["answer"]
 
         # Personality review step (gated — enable via PERSONALITY_REVIEW_ENABLED=true)
         if PERSONALITY_REVIEW_ENABLED:
@@ -870,12 +784,12 @@ async def chat(
             response=assistant_response,
             session_id=session_id,
             grounding=(
-                ChatGrounding(**grounding_summary)
-                if can_view_source_details and grounding_summary
+                ChatGrounding(**orchestration["grounding"])
+                if can_view_source_details and orchestration["grounding"]
                 else None
             ),
             sources=(
-                [ChatSource(**source) for source in retrieved_sources]
+                [ChatSource(**source) for source in orchestration["retrieved_sources"]]
                 if can_view_source_details
                 else []
             ),
