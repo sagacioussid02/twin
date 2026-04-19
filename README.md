@@ -1,19 +1,26 @@
-# Personas
+# Personality Twin
 
-> *What would Sidd do?* — and more importantly, what would Gandhi do if you asked him about your startup pitch?
+> **Turn human expertise into an always-on AI persona.**
 
-Personas lets you build an AI version of yourself (or chat with historical figures who, unlike your LinkedIn connections, will actually give you a straight answer). You feed it your bio, how you make decisions, what you'd never compromise on, and it synthesizes a personality model that powers surprisingly coherent conversations.
+Personality Twin is a production-ready platform for creating digital versions of real people, founders, experts, and public figures. It captures voice, judgment, values, and decision-making style, then turns that into a conversational AI experience users can interact with anytime.
 
-Think of it as a second brain that doesn't get tired, doesn't have meetings, and won't ghost you after one message.
+Built for scale on AWS, it combines a polished Next.js frontend with a FastAPI backend powered by Bedrock, Lambda, S3, and CloudFront.
 
 ---
 
-## What it actually does
+## Why it stands out
 
-1. **Chat with Sidd's twin** — try it on the homepage, no account needed (2 questions before we ask you to commit)
-2. **Create your own persona** — walk through a guided interview, optionally upload your LinkedIn PDF, and get an AI twin that reasons the way you do
-3. **Deepen it** — a follow-up interview digs into past decisions, non-negotiables, and times you changed your mind. This is the stuff that makes the difference between "generic chatbot" and "uncanny valley"
-4. **Chat with historical figures** — public personas are available, with more being added over time. They're shockingly opinionated.
+- **Capture more than a resume** — preserve how someone thinks, not just what they have done
+- **Create premium AI experiences** — let users chat with a founder, advisor, mentor, or historical persona
+- **Deploy with confidence** — secure, serverless AWS architecture designed for real-world usage
+- **Personalize at depth** — guided interviews and uploaded context make each twin feel distinct and believable
+
+## Core experience
+
+1. **Try a live twin instantly** — start chatting from the homepage with no setup required
+2. **Build your own personality twin** — answer guided prompts and upload context to create a richer AI identity
+3. **Refine the model** — deepen the twin with values, trade-offs, and pivotal decisions
+4. **Launch memorable conversations** — explore curated public personas and showcase the product experience
 
 ---
 
@@ -122,9 +129,9 @@ Browser
 
 ## Deploying
 
-Push to `main`. GitHub Actions handles the rest — builds the Lambda package, runs Terraform, and deploys the frontend to the AWS-hosted static site stack managed in this repo (S3 + CloudFront). See `.github/workflows/deploy.yml` if you want to know exactly what's happening (or what broke).
+Push to `main`. GitHub Actions handles the rest — builds the Lambda package, runs Terraform, and deploys the frontend to the AWS-hosted static site stack managed in this repo (S3 + CloudFront).
 
-The infra lives in AWS (Lambda + API Gateway + S3 + CloudFront). Terraform state is in S3 with a DynamoDB lock table, because losing infra state is the kind of thing that ruins Tuesdays.
+The platform runs on a modern serverless AWS stack using Lambda, API Gateway, S3, CloudFront, and Bedrock, giving it the speed, scalability, and production posture expected from a sellable AI product.
 
 ---
 

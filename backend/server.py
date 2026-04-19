@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import field_validator
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,7 @@ import hmac
 import hashlib
 import httpx
 import jwt
+from urllib.parse import quote
 from context import prompt
 from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
 
@@ -2244,6 +2246,632 @@ async def deepen_message(
     except Exception as exc:
         print(f"Unexpected error in /twin/{{twin_id}}/deepen/message: {exc}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
+
+
+# ── Resume Builder ─────────────────────────────────────────────────────────────
+
+_RESUME_SYSTEM_TEMPLATE = """\
+You are a focused assistant collecting data to build someone's professional resume.
+Cover the remaining topics through natural conversation — one topic per turn.
+
+TOPICS (in order, skip already-covered ones):
+1. TECH_STACK       → languages, frameworks, tools, cloud platforms, certifications
+2. EDUCATION        → degrees, institutions, fields of study, graduation years
+3. CAREER_HISTORY   → companies, job titles, start/end dates, key responsibilities
+4. ACCOMPLISHMENTS  → 2-4 specific wins with metrics (e.g. "reduced latency by 40%")
+5. TARGET_ROLE      → what kind of role they are targeting next
+
+RULES:
+- One topic per turn. 2-3 sentences max. Be direct and practical.
+- Every message MUST end with a question, except the final closing when done is true.
+- If an answer is vague (e.g. "I've done a lot of backend work"), ask for one specific \
+example or metric, then accept whatever they give.
+- After a complete answer, acknowledge in one short phrase and ask the next topic.
+- Never use form-speak ("Topic 3 of 5", "Moving on to", "Next up").
+- When all topics are covered, close with one sentence and set done to true.
+
+CURRENT STATE:
+Topics remaining: {topics_remaining}
+Data collected so far:
+{fields_json}
+{linkedin_section}
+
+RETURN ONLY valid JSON — no markdown, no text outside the JSON:
+{{
+  "message": "your question or closing as natural prose",
+  "field_updates": {{
+    "tech_stack": "comma-separated tools/languages — omit if not in this turn",
+    "education": "degree, institution, year — omit if not in this turn",
+    "career_history": "bullet list of roles: Company (dates): responsibilities — omit if not in this turn",
+    "accomplishments": "bullet list of wins with metrics — omit if not in this turn",
+    "target_role": "desired role title — omit if not in this turn"
+  }},
+  "topics_covered": ["TECH_STACK"],
+  "done": false
+}}
+"""
+
+_ALL_RESUME_TOPICS = ["TECH_STACK", "EDUCATION", "CAREER_HISTORY", "ACCOMPLISHMENTS", "TARGET_ROLE"]
+
+_RESUME_TOOLS = [
+    {
+        "toolSpec": {
+            "name": "set_contact_info",
+            "description": "Set the candidate's contact information for the resume header.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "email": {"type": "string"},
+                        "phone": {"type": "string"},
+                        "location": {"type": "string"},
+                        "linkedin_url": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "set_summary",
+            "description": (
+                "Write a 2-4 sentence professional summary. "
+                "If a target role and job description are provided, tailor it to that role."
+            ),
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"},
+                    },
+                    "required": ["text"],
+                },
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "add_experience",
+            "description": "Add one work experience entry. Call once per role, most recent first.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "company": {"type": "string"},
+                        "title": {"type": "string"},
+                        "start_date": {"type": "string"},
+                        "end_date": {"type": "string", "description": "Use 'Present' if current role"},
+                        "bullets": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "2-4 achievement-oriented bullet points. "
+                                "Start each with a strong action verb. Include metrics where available."
+                            ),
+                        },
+                    },
+                    "required": ["company", "title", "start_date", "end_date", "bullets"],
+                },
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "add_education",
+            "description": "Add one education entry. Call once per degree.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "institution": {"type": "string"},
+                        "degree": {"type": "string"},
+                        "field": {"type": "string"},
+                        "graduation_year": {"type": "string"},
+                        "gpa": {"type": "string", "description": "Include only if 3.5 or above"},
+                    },
+                    "required": ["institution", "degree", "graduation_year"],
+                },
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "set_skills",
+            "description": "Set the skills section grouped by category (e.g. Languages, Frameworks, Tools, Cloud).",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "categories": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "skills": {"type": "array", "items": {"type": "string"}},
+                                },
+                                "required": ["name", "skills"],
+                            },
+                        },
+                    },
+                    "required": ["categories"],
+                },
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "finalize_resume",
+            "description": "Call this once all sections have been populated. Signals the backend to format and return the document.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "ready": {"type": "boolean"},
+                    },
+                    "required": ["ready"],
+                },
+            },
+        }
+    },
+]
+
+
+class ResumeHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
+class ResumeFieldUpdates(BaseModel):
+    tech_stack: Optional[str] = None
+    education: Optional[str] = None
+    career_history: Optional[str] = None
+    accomplishments: Optional[str] = None
+    target_role: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class ResumeRequest(BaseModel):
+    history: List[ResumeHistoryItem] = Field(default_factory=list)
+    topics_covered: List[str] = Field(default_factory=list)
+    fields_collected: Optional[Dict[str, Any]] = None
+    linkedin_parsed: Optional[Dict[str, Any]] = None
+
+
+class ResumeResponse(BaseModel):
+    message: str
+    field_updates: ResumeFieldUpdates = Field(default_factory=ResumeFieldUpdates)
+    topics_covered: List[str] = Field(default_factory=list)
+    done: bool = False
+
+    model_config = {"extra": "ignore"}
+
+    @field_validator("field_updates", mode="before")
+    @classmethod
+    def _coerce_field_updates(cls, v: Any) -> Any:
+        if not isinstance(v, dict):
+            return {}
+        return v
+
+    @field_validator("topics_covered", mode="before")
+    @classmethod
+    def _coerce_topics_covered(cls, v: Any) -> Any:
+        if not isinstance(v, list):
+            return []
+        return [item for item in v if isinstance(item, str)]
+
+    @field_validator("done", mode="before")
+    @classmethod
+    def _coerce_done(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            return v
+        return False
+
+
+class ResumeGenerateRequest(BaseModel):
+    fields_collected: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _build_resume_docx(resume_data: dict) -> bytes:
+    """Format accumulated tool-call results into a Word document."""
+    from docx import Document
+    from docx.shared import Pt, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    import io as _io
+
+    doc = Document()
+
+    for section in doc.sections:
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(1.0)
+        section.right_margin = Inches(1.0)
+
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(10)
+
+    contact = resume_data.get("contact", {})
+
+    # Name
+    name_para = doc.add_paragraph()
+    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    name_para.paragraph_format.space_after = Pt(2)
+    run = name_para.add_run(contact.get("name", ""))
+    run.bold = True
+    run.font.size = Pt(18)
+
+    # Contact line
+    parts = [v for k in ("email", "phone", "location", "linkedin_url") if (v := contact.get(k))]
+    if parts:
+        cp = doc.add_paragraph(" | ".join(parts))
+        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cp.paragraph_format.space_after = Pt(6)
+        for r in cp.runs:
+            r.font.size = Pt(10)
+
+    def _section_header(title: str):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(10)
+        p.paragraph_format.space_after = Pt(3)
+        run = p.add_run(title.upper())
+        run.bold = True
+        run.font.size = Pt(11)
+        pPr = p._p.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "6")
+        bottom.set(qn("w:space"), "1")
+        bottom.set(qn("w:color"), "000000")
+        pBdr.append(bottom)
+        pPr.append(pBdr)
+
+    # Summary
+    if resume_data.get("summary"):
+        _section_header("Professional Summary")
+        p = doc.add_paragraph(resume_data["summary"])
+        p.paragraph_format.space_after = Pt(4)
+
+    # Experience
+    if resume_data.get("experience"):
+        _section_header("Experience")
+        for exp in resume_data["experience"]:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(6)
+            p.paragraph_format.space_after = Pt(0)
+            r = p.add_run(exp.get("company", ""))
+            r.bold = True
+            r.font.size = Pt(11)
+            p.add_run(f"  {exp.get('start_date', '')} – {exp.get('end_date', '')}")
+
+            p2 = doc.add_paragraph()
+            p2.paragraph_format.space_before = Pt(0)
+            p2.paragraph_format.space_after = Pt(2)
+            r2 = p2.add_run(exp.get("title", ""))
+            r2.italic = True
+
+            for bullet in exp.get("bullets", []):
+                bp = doc.add_paragraph(style="List Bullet")
+                bp.paragraph_format.space_before = Pt(0)
+                bp.paragraph_format.space_after = Pt(1)
+                bp.paragraph_format.left_indent = Inches(0.25)
+                bp.add_run(bullet)
+
+    # Education
+    if resume_data.get("education"):
+        _section_header("Education")
+        for edu in resume_data["education"]:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(6)
+            p.paragraph_format.space_after = Pt(0)
+            r = p.add_run(edu.get("institution", ""))
+            r.bold = True
+            r.font.size = Pt(11)
+            p.add_run(f"  {edu.get('graduation_year', '')}")
+
+            degree_parts = [s for s in (edu.get("degree"), edu.get("field")) if s]
+            if edu.get("gpa"):
+                degree_parts.append(f"GPA: {edu['gpa']}")
+            if degree_parts:
+                p2 = doc.add_paragraph(", ".join(degree_parts))
+                p2.paragraph_format.space_before = Pt(0)
+                p2.paragraph_format.space_after = Pt(4)
+
+    # Skills
+    if resume_data.get("skills"):
+        _section_header("Skills")
+        for cat in resume_data["skills"]:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(3)
+            p.paragraph_format.space_after = Pt(1)
+            r = p.add_run(f"{cat.get('name', '')}: ")
+            r.bold = True
+            p.add_run(", ".join(cat.get("skills", [])))
+
+    buf = _io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+@app.post("/resume/message")
+async def resume_message(
+    request: ResumeRequest,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """One turn of the resume data-collection interview."""
+    covered = list(request.topics_covered)
+
+    # Auto-mark topics that are already satisfied by pre-loaded twin/LinkedIn data
+    fields = request.fields_collected or {}
+    lp = request.linkedin_parsed or {}
+    if lp.get("skills") or fields.get("tech_stack"):
+        if "TECH_STACK" not in covered:
+            covered.append("TECH_STACK")
+    if fields.get("career_history") or lp.get("experience"):
+        if "CAREER_HISTORY" not in covered:
+            covered.append("CAREER_HISTORY")
+    if fields.get("accomplishments") or lp.get("achievements"):
+        if "ACCOMPLISHMENTS" not in covered:
+            covered.append("ACCOMPLISHMENTS")
+
+    remaining = [t for t in _ALL_RESUME_TOPICS if t not in covered]
+
+    linkedin_section = ""
+    if lp:
+        lines = []
+        if lp.get("name"):       lines.append(f"Name: {lp['name']}")
+        if lp.get("title"):      lines.append(f"Title: {lp['title']}")
+        if lp.get("skills"):     lines.append(f"Skills: {str(lp['skills'])[:300]}")
+        if lp.get("experience"): lines.append(f"Experience: {str(lp['experience'])[:400]}")
+        if lines:
+            linkedin_section = "\nLinkedIn data (pre-loaded — do not re-ask):\n" + "\n".join(lines)
+
+    system_prompt = _RESUME_SYSTEM_TEMPLATE.format(
+        topics_remaining=", ".join(remaining) if remaining else "ALL COVERED",
+        fields_json=json.dumps(fields, indent=2),
+        linkedin_section=linkedin_section,
+    )
+
+    messages: List[Dict[str, Any]] = []
+    if not request.history:
+        messages = [{"role": "user", "content": [{"text": "hi, let's start"}]}]
+    else:
+        for item in request.history[-50:]:
+            if item.role not in ("user", "assistant"):
+                raise HTTPException(status_code=400, detail=f"Invalid role: {item.role!r}")
+            messages.append({"role": item.role, "content": [{"text": item.content}]})
+        if messages and messages[0]["role"] != "user":
+            messages.insert(0, {"role": "user", "content": [{"text": "hi, let's start"}]})
+
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": system_prompt}],
+            messages=messages,
+            inferenceConfig={"maxTokens": 600, "temperature": 0.8, "topP": 0.95},
+        )
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+        data = _extract_json_object(raw, required_key="message")
+
+        if not isinstance(data, dict) or "message" not in data:
+            raise ValueError("Invalid resume interview JSON structure")
+
+        validated = ResumeResponse.model_validate(data)
+
+        request_topics = set(covered)
+        model_topics = set(validated.topics_covered or [])
+        merged = request_topics | model_topics
+        if merged:
+            validated.topics_covered = [t for t in _ALL_RESUME_TOPICS if t in merged]
+
+        result = validated.model_dump(exclude_none=True)
+        if set(_ALL_RESUME_TOPICS).issubset(merged) and not result.get("done"):
+            result["done"] = True
+
+        return result
+
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"Resume interview JSON parse error: {exc!r}")
+        return {
+            "message": "Got it — let me keep going. Could you tell me a bit more?",
+            "field_updates": {},
+            "topics_covered": covered,
+            "done": False,
+        }
+    except Exception as exc:
+        print(f"Unexpected error in /resume/message: {exc}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
+
+
+@app.post("/resume/parse-jd")
+async def resume_parse_jd(
+    file: UploadFile = File(...),
+    _user_id: str = Depends(get_current_user_id),
+):
+    """Extract structured data from a job description PDF."""
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    try:
+        contents = await file.read()
+        reader = PdfReader(io.BytesIO(contents))
+        text = "".join(p.extract_text() or "" for p in reader.pages)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+
+    extract_prompt = f"""Extract structured data from this job description and return ONLY valid JSON:
+{{
+  "role": "job title",
+  "company": "company name or empty string",
+  "required_skills": "comma-separated list of required skills/technologies",
+  "preferred_skills": "comma-separated nice-to-haves",
+  "responsibilities": "bullet summary of key responsibilities",
+  "raw_text": "first 800 chars of the job description verbatim"
+}}
+
+Job description:
+{text[:5000]}
+
+Return only the JSON, no other text."""
+
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": extract_prompt}]}],
+            inferenceConfig={"maxTokens": 800, "temperature": 0.1},
+        )
+        raw = response["output"]["message"]["content"][0]["text"]
+        return _extract_json_object(raw)
+    except Exception as e:
+        print(f"Error in /resume/parse-jd: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse job description")
+
+
+@app.post("/resume/generate")
+async def resume_generate(
+    request: ResumeGenerateRequest,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """Run the resume-builder agent loop, then return a formatted .docx file."""
+    fields = request.fields_collected
+
+    context_lines = []
+    for key, val in fields.items():
+        if val and key != "job_description":
+            context_lines.append(f"{key.replace('_', ' ').title()}: {val}")
+    context = "\n".join(context_lines)
+
+    jd_section = ""
+    if fields.get("job_description"):
+        jd_section = f"\n\nTarget Job Description:\n{fields['job_description']}"
+
+    system_prompt = (
+        "You are a professional resume writer. Use the provided tools to build a polished, "
+        "ATS-friendly resume from the candidate information supplied.\n\n"
+        "Call the tools in this order:\n"
+        "1. set_contact_info\n"
+        "2. set_summary (tailor to the target role if a job description is provided)\n"
+        "3. add_experience — once per role, most recent first; write strong action-verb bullets with metrics\n"
+        "4. add_education — once per degree\n"
+        "5. set_skills — group by category (Languages, Frameworks, Tools, Cloud, etc.)\n"
+        "6. finalize_resume\n\n"
+        "Use only information that is explicitly provided. Do not invent details, dates, or metrics."
+    )
+
+    user_message = f"Here is the candidate's information:\n\n{context}{jd_section}\n\nBuild their resume now."
+
+    messages: List[Dict[str, Any]] = [
+        {"role": "user", "content": [{"text": user_message}]}
+    ]
+
+    resume_data: Dict[str, Any] = {
+        "contact": {},
+        "summary": "",
+        "experience": [],
+        "education": [],
+        "skills": [],
+    }
+
+    _MAX_AGENT_ITERATIONS = 20
+
+    try:
+        for _ in range(_MAX_AGENT_ITERATIONS):
+            response = await asyncio.to_thread(
+                bedrock_client.converse,
+                modelId=BEDROCK_MODEL_ID,
+                system=[{"text": system_prompt}],
+                messages=messages,
+                toolConfig={
+                    "tools": _RESUME_TOOLS,
+                    "toolChoice": {"auto": {}},
+                },
+                inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
+            )
+
+            stop_reason = response.get("stopReason", "end_turn")
+            response_message = response["output"]["message"]
+            messages.append(response_message)
+
+            if stop_reason != "tool_use":
+                break
+
+            tool_results = []
+            finalized = False
+
+            for block in response_message.get("content", []):
+                tool_use = block.get("toolUse")
+                if not tool_use:
+                    continue
+
+                name = tool_use["name"]
+                inp = tool_use["input"]
+                tool_use_id = tool_use["toolUseId"]
+
+                if name == "set_contact_info":
+                    resume_data["contact"] = inp
+                elif name == "set_summary":
+                    resume_data["summary"] = inp.get("text", "")
+                elif name == "add_experience":
+                    resume_data["experience"].append(inp)
+                elif name == "add_education":
+                    resume_data["education"].append(inp)
+                elif name == "set_skills":
+                    resume_data["skills"] = inp.get("categories", [])
+                elif name == "finalize_resume":
+                    finalized = True
+
+                tool_results.append({
+                    "toolResult": {
+                        "toolUseId": tool_use_id,
+                        "content": [{"text": "OK"}],
+                        "status": "success",
+                    }
+                })
+
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+
+            if finalized:
+                break
+
+    except Exception as exc:
+        print(f"Error in resume agent loop: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to generate resume")
+
+    if not resume_data["contact"] and not resume_data["experience"]:
+        raise HTTPException(status_code=500, detail="Resume agent did not produce usable output")
+
+    try:
+        doc_bytes = await asyncio.to_thread(_build_resume_docx, resume_data)
+    except Exception as exc:
+        print(f"Error building resume docx: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to format resume document")
+
+    raw_candidate_name = str(resume_data["contact"].get("name") or "resume")
+    safe_candidate_name = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_candidate_name).strip("._-")
+    safe_candidate_name = re.sub(r"_+", "_", safe_candidate_name)
+    if not safe_candidate_name:
+        safe_candidate_name = "resume"
+    filename = f"{safe_candidate_name}_resume.docx"
+    filename_star = f"{quote(safe_candidate_name, safe='')}_resume.docx"
+
+    return StreamingResponse(
+        io.BytesIO(doc_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{filename_star}"},
+    )
 
 
 if __name__ == "__main__":
