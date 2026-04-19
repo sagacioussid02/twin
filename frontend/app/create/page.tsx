@@ -238,6 +238,7 @@ export default function CreatePage() {
       verbalQuirks: fields.verbalQuirks || '',
       responseStyle: fields.responseStyle || 'balanced',
       archetype_id: fields.archetype_id ?? null,
+      linkedinParsed: linkedinParsed,
     };
   }
 

@@ -13,6 +13,20 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  grounding?: {
+    answer_type: string;
+    confidence_label: string;
+    grounding_mode: string;
+  };
+  sources?: Array<{
+    source_id: string;
+    source_type: string;
+    title: string;
+    snippet: string;
+    confidence: string;
+    tags: string[];
+    matched_terms: string[];
+  }>;
 }
 
 interface TwinProfile {
@@ -22,6 +36,7 @@ interface TwinProfile {
   personality_summary: string;
   core_values: string[];
   archetype_display_name?: string;
+  source_count?: number;
 }
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -184,6 +199,8 @@ function TwinChat() {
         role: 'assistant',
         content: data.response,
         timestamp: new Date(),
+        grounding: data.grounding,
+        sources: data.sources ?? [],
       }]);
     } catch {
       setMessages(prev => [...prev, {
@@ -257,6 +274,11 @@ function TwinChat() {
                     ))}
                   </div>
                 )}
+                {!!profile.source_count && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Grounded by {profile.source_count} saved notes and training artifacts
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -319,6 +341,42 @@ function TwinChat() {
                     <div className={message.role === 'assistant' ? 'max-w-[70%]' : 'max-w-[70%]'}>
                       <div className={`group rounded-lg p-3 ${message.role === 'user' ? 'bg-slate-700 text-white' : 'bg-gray-50 border border-gray-200 text-gray-800'}`}>
                         <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                        {message.role === 'assistant' && ((message.sources && message.sources.length > 0) || message.grounding) && (
+                          <div className="mt-3 space-y-2">
+                            {message.grounding && (
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className={`text-[11px] px-2 py-1 rounded-full border ${
+                                  message.grounding.confidence_label === 'high'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : message.grounding.confidence_label === 'medium'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                      : 'bg-gray-100 text-gray-600 border-gray-200'
+                                }`}>
+                                  {message.grounding.confidence_label} confidence
+                                </span>
+                                <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                                  {message.grounding.grounding_mode}
+                                </span>
+                                <span className="text-[11px] px-2 py-1 rounded-full border bg-purple-50 text-purple-700 border-purple-200">
+                                  {message.grounding.answer_type}
+                                </span>
+                              </div>
+                            )}
+                            {message.sources && message.sources.length > 0 && (
+                              <div className="space-y-1.5">
+                                {message.sources.slice(0, 2).map(source => (
+                                  <div key={source.source_id} className="rounded-md border border-gray-200 bg-white/80 px-2.5 py-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="text-[11px] font-medium text-gray-700">Based on {source.title}</span>
+                                      <span className="text-[10px] uppercase tracking-wide text-gray-400">{source.confidence}</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">{source.snippet}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between mt-1">
                           <p className={`text-xs ${message.role === 'user' ? 'text-slate-300' : 'text-gray-400'}`}>
                             {message.timestamp.toLocaleTimeString()}

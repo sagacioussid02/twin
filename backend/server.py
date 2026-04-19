@@ -25,9 +25,38 @@ import jwt
 from urllib.parse import quote
 from context import prompt
 from personality_agent import detect_archetype, get_archetype, get_all_archetypes, review_response
+from source_memory import (
+    build_correction_source,
+    build_deepen_sources,
+    build_grounding_summary,
+    build_initial_sources,
+    classify_query,
+    ensure_sources,
+    format_retrieved_sources,
+    merge_sources,
+    retrieve_relevant_sources,
+)
 
 # Load environment variables
 load_dotenv()
+
+
+def _stable_source_id(source: Dict[str, Any]) -> str:
+    source_type = str(source.get("source_type", "")).strip()
+    content = str(source.get("content", "")).strip()
+    title = str(source.get("title", "")).strip()
+    url = str(source.get("url", "")).strip()
+    raw_value = f"{source_type}\n{title}\n{url}\n{content}"
+    return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+
+def _normalize_source_ids(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized_sources = []
+    for source in sources:
+        normalized_source = dict(source)
+        normalized_source["source_id"] = _stable_source_id(normalized_source)
+        normalized_sources.append(normalized_source)
+    return normalized_sources
 
 app = FastAPI()
 
@@ -355,9 +384,27 @@ class ChatRequest(BaseModel):
     twin_id: Optional[str] = None  # if set, chat with a user-created twin
 
 
+class ChatSource(BaseModel):
+    source_id: str
+    source_type: str
+    title: str
+    snippet: str
+    confidence: str
+    tags: List[str] = Field(default_factory=list)
+    matched_terms: List[str] = Field(default_factory=list)
+
+
+class ChatGrounding(BaseModel):
+    answer_type: str
+    confidence_label: str
+    grounding_mode: str
+
+
 class ChatResponse(BaseModel):
     response: str
     session_id: str
+    grounding: Optional[ChatGrounding] = None
+    sources: List[ChatSource] = Field(default_factory=list)
 
 
 class Message(BaseModel):
@@ -384,6 +431,7 @@ class CreateTwinRequest(BaseModel):
     archetype_id: Optional[str] = None
     responseStyle: Optional[str] = "balanced"
     verbalQuirks: Optional[str] = ""
+    linkedinParsed: Optional[Dict[str, Any]] = None
 
     @field_validator("name", "title", "bio")
     @classmethod
@@ -565,6 +613,8 @@ def call_bedrock(
     twin_title: Optional[str] = None,
     response_style: str = "balanced",
     corrections: Optional[List[dict]] = None,
+    retrieved_sources: Optional[List[dict]] = None,
+    query_type: str = "factual",
 ) -> str:
     """Call AWS Bedrock with conversation history"""
 
@@ -582,6 +632,19 @@ def call_bedrock(
         "role": "user",
         "content": [{"text": f"System: {system_prompt}"}]
     })
+
+    if retrieved_sources:
+        evidence_block = format_retrieved_sources(retrieved_sources)
+        messages.append({
+            "role": "user",
+            "content": [{
+                "text": (
+                    f"The user's latest request is classified as: {query_type}.\n"
+                    f"{evidence_block}\n"
+                    "If the evidence does not fully answer the question, say what is grounded and what is inferred."
+                )
+            }]
+        })
 
     # Add conversation history (limit to last 25 exchanges)
     for msg in conversation[-50:]:
@@ -749,6 +812,13 @@ async def chat(
             response_style = personality_model.get("_context", {}).get("responseStyle", response_style)
 
         corrections = twin_data.get("corrections") if twin_data else None
+        query_type = classify_query(request.message)
+        sources = ensure_sources(twin_data) if twin_data else []
+        if twin_data:
+            sources = _normalize_source_ids(sources)
+            twin_data["sources"] = sources
+        retrieved_sources = retrieve_relevant_sources(request.message, sources) if twin_data else []
+        grounding_summary = build_grounding_summary(query_type, retrieved_sources) if twin_data else None
         assistant_response = call_bedrock(
             conversation,
             request.message,
@@ -757,6 +827,8 @@ async def chat(
             twin_title,
             response_style,
             corrections=corrections,
+            retrieved_sources=retrieved_sources,
+            query_type=query_type,
         )
 
         # Personality review step (gated — enable via PERSONALITY_REVIEW_ENABLED=true)
@@ -786,7 +858,28 @@ async def chat(
         effective_chatter_id = chatter_id or stored_chatter_id
         save_conversation(session_id, conversation, chatter_id=effective_chatter_id, twin_owner_id=twin_owner_id)
 
-        return ChatResponse(response=assistant_response, session_id=session_id)
+        # Source snippets and grounding may contain sensitive onboarding/correction
+        # content. Only return them to the twin owner, or for built-in/public twins
+        # that do not have an owner.
+        is_public_twin = twin_data is not None and not twin_owner_id
+        can_view_source_details = is_public_twin or (
+            chatter_id is not None and chatter_id == twin_owner_id
+        )
+
+        return ChatResponse(
+            response=assistant_response,
+            session_id=session_id,
+            grounding=(
+                ChatGrounding(**grounding_summary)
+                if can_view_source_details and grounding_summary
+                else None
+            ),
+            sources=(
+                [ChatSource(**source) for source in retrieved_sources]
+                if can_view_source_details
+                else []
+            ),
+        )
 
     except HTTPException:
         raise
@@ -990,6 +1083,7 @@ async def get_twin(twin_id: str):
         "core_values": twin_data.get("personality_model", {}).get("core_values", []),
         "archetype_display_name": twin_data.get("archetype_display_name"),
         "created_at": twin_data.get("created_at", ""),
+        "source_count": len(ensure_sources(twin_data)),
     }
 
 
@@ -1163,8 +1257,11 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
         "skills": request.skills,
         "experience": request.experience,
         "achievements": request.achievements,
+        "coreValues": request.coreValues,
+        "decisionStyle": request.decisionStyle,
         "pastDecisions": request.pastDecisions,
         "communicationStyle": request.communicationStyle,
+        "blindSpots": request.blindSpots,
         "verbalQuirks": request.verbalQuirks or "",
         "responseStyle": request.responseStyle or "balanced",
     }
@@ -1184,6 +1281,7 @@ Be specific and concrete. Avoid generic statements. Infer from the data even whe
         "archetype_id": archetype_id,
         "archetype_display_name": archetype_display_name,
         "personality_model": personality_model,
+        "sources": build_initial_sources(request.model_dump(), request.linkedinParsed),
         "created_at": datetime.now().isoformat(),
         "chat_url": f"/twin?id={twin_id}",
     }
@@ -1322,6 +1420,16 @@ async def add_correction(
     })
     # Cap stored corrections to avoid unbounded growth
     twin_data["corrections"] = corrections[-20:]
+    correction_source = build_correction_source(
+        question=request.question[:500],
+        wrong_response=request.wrong_response[:500],
+        correction=request.correction[:500],
+        created_at=corrections[-1]["created_at"],
+    )
+    twin_data["sources"] = merge_sources(
+        twin_data.get("sources", []),
+        [correction_source] if correction_source else [],
+    )
     _save_twin(twin_id, user_id, twin_data)
     return {"status": "ok", "corrections_count": len(twin_data["corrections"])}
 
@@ -2033,6 +2141,10 @@ async def _deepen_and_save(twin_id: str, user_id: str, twin_data: dict, new_fiel
     # Write the updated _context back into personality_model so prompt building picks it up
     existing_model["_context"] = ctx
     twin_data["personality_model"] = existing_model
+    twin_data["sources"] = merge_sources(
+        twin_data.get("sources", []),
+        build_deepen_sources(new_fields),
+    )
 
     synthesis_prompt = f"""You are updating an AI twin's personality model with new depth data.
 

@@ -9,6 +9,17 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  grounding?: {
+    answer_type: string;
+    confidence_label: string;
+    grounding_mode: string;
+  };
+  sources?: Array<{
+    source_id: string;
+    title: string;
+    snippet: string;
+    confidence: string;
+  }>;
 }
 
 interface Props {
@@ -66,7 +77,14 @@ function TwinChat({ twinId, twinName }: Props) {
 
       setMessages(prev => [
         ...prev,
-        { id: crypto.randomUUID(), role: 'assistant', content: data.response, timestamp: new Date() },
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: data.response,
+          timestamp: new Date(),
+          grounding: data.grounding,
+          sources: data.sources ?? [],
+        },
       ]);
     } catch {
       setMessages(prev => [
@@ -116,6 +134,30 @@ function TwinChat({ twinId, twinName }: Props) {
                 : 'bg-white border border-gray-200 text-gray-800'
             }`}>
               <p className="whitespace-pre-wrap">{message.content}</p>
+              {message.role === 'assistant' && ((message.sources && message.sources.length > 0) || message.grounding) && (
+                <div className="mt-2 space-y-2">
+                  {message.grounding && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-[11px] px-2 py-1 rounded-full border bg-gray-50 text-gray-600 border-gray-200">
+                        {message.grounding.confidence_label} confidence
+                      </span>
+                      <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                        {message.grounding.grounding_mode}
+                      </span>
+                    </div>
+                  )}
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="space-y-1.5">
+                      {message.sources.slice(0, 2).map(source => (
+                        <div key={source.source_id} className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2">
+                          <p className="text-[11px] font-medium text-gray-700">Based on {source.title}</p>
+                          <p className="text-xs text-gray-500 mt-1">{source.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-slate-300' : 'text-gray-500'}`}>
                 {message.timestamp.toLocaleTimeString()}
               </p>
