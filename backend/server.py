@@ -837,11 +837,27 @@ async def chat(
         effective_chatter_id = chatter_id or stored_chatter_id
         save_conversation(session_id, conversation, chatter_id=effective_chatter_id, twin_owner_id=twin_owner_id)
 
+        # Source snippets and grounding may contain sensitive onboarding/correction
+        # content. Only return them to the twin owner, or for built-in/public twins
+        # that do not have an owner.
+        is_public_twin = twin_data is not None and not twin_owner_id
+        can_view_source_details = is_public_twin or (
+            chatter_id is not None and chatter_id == twin_owner_id
+        )
+
         return ChatResponse(
             response=assistant_response,
             session_id=session_id,
-            grounding=ChatGrounding(**grounding_summary) if grounding_summary else None,
-            sources=[ChatSource(**source) for source in retrieved_sources],
+            grounding=(
+                ChatGrounding(**grounding_summary)
+                if can_view_source_details and grounding_summary
+                else None
+            ),
+            sources=(
+                [ChatSource(**source) for source in retrieved_sources]
+                if can_view_source_details
+                else []
+            ),
         )
 
     except HTTPException:
