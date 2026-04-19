@@ -40,6 +40,24 @@ from source_memory import (
 # Load environment variables
 load_dotenv()
 
+
+def _stable_source_id(source: Dict[str, Any]) -> str:
+    source_type = str(source.get("source_type", "")).strip()
+    content = str(source.get("content", "")).strip()
+    title = str(source.get("title", "")).strip()
+    url = str(source.get("url", "")).strip()
+    raw_value = f"{source_type}\n{title}\n{url}\n{content}"
+    return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+
+def _normalize_source_ids(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized_sources = []
+    for source in sources:
+        normalized_source = dict(source)
+        normalized_source["source_id"] = _stable_source_id(normalized_source)
+        normalized_sources.append(normalized_source)
+    return normalized_sources
+
 app = FastAPI()
 
 # Configure CORS
@@ -796,6 +814,9 @@ async def chat(
         corrections = twin_data.get("corrections") if twin_data else None
         query_type = classify_query(request.message)
         sources = ensure_sources(twin_data) if twin_data else []
+        if twin_data:
+            sources = _normalize_source_ids(sources)
+            twin_data["sources"] = sources
         retrieved_sources = retrieve_relevant_sources(request.message, sources) if twin_data else []
         grounding_summary = build_grounding_summary(query_type, retrieved_sources) if twin_data else None
         assistant_response = call_bedrock(
