@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import copy
 import os
+import threading
 import time
 from collections import defaultdict, deque
 from dotenv import load_dotenv
@@ -137,6 +138,8 @@ _NOTIFY_WINDOW_SECONDS = 7 * 24 * 3600.0  # 7 days
 _anon_notify_ip_history: dict[str, deque] = defaultdict(deque)
 _anon_notify_session_seen: set[str] = set()
 _auth_notify_user_history: dict[str, deque] = defaultdict(deque)
+_anon_notify_lock = threading.Lock()
+_auth_notify_lock = threading.Lock()
 
 
 def _client_ip(req: Request) -> str:
@@ -155,17 +158,18 @@ def _should_notify_anon(ip: str, session_id: str) -> bool:
     """
     if _FEEDBACK_NOTIFY_RATE_LIMIT <= 0:
         return False
-    if session_id in _anon_notify_session_seen:
-        return False
-    now = time.monotonic()
-    history = _anon_notify_ip_history[ip]
-    while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
-        history.popleft()
-    if len(history) >= _FEEDBACK_NOTIFY_RATE_LIMIT:
-        return False
-    history.append(now)
-    _anon_notify_session_seen.add(session_id)
-    return True
+    with _anon_notify_lock:
+        if session_id in _anon_notify_session_seen:
+            return False
+        now = time.monotonic()
+        history = _anon_notify_ip_history[ip]
+        while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
+            history.popleft()
+        if len(history) >= _FEEDBACK_NOTIFY_RATE_LIMIT:
+            return False
+        history.append(now)
+        _anon_notify_session_seen.add(session_id)
+        return True
 
 
 def _should_notify_auth(chatter_id: str) -> bool:
@@ -177,14 +181,15 @@ def _should_notify_auth(chatter_id: str) -> bool:
     """
     if _AUTH_FEEDBACK_NOTIFY_RATE_LIMIT <= 0:
         return False
-    now = time.monotonic()
-    history = _auth_notify_user_history[chatter_id]
-    while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
-        history.popleft()
-    if len(history) >= _AUTH_FEEDBACK_NOTIFY_RATE_LIMIT:
-        return False
-    history.append(now)
-    return True
+    with _auth_notify_lock:
+        now = time.monotonic()
+        history = _auth_notify_user_history[chatter_id]
+        while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
+            history.popleft()
+        if len(history) >= _AUTH_FEEDBACK_NOTIFY_RATE_LIMIT:
+            return False
+        history.append(now)
+        return True
 
 
 async def _notify_connect_intent(user_message: str, session_id: str, twin_name: str) -> None:
