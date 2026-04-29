@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-python-dotenv
+python-dotenv>=1.2.2
 python-multipart>=0.0.26
 boto3
 cryptography>=46.0.7
