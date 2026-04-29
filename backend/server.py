@@ -136,16 +136,21 @@ _FEEDBACK_NOTIFY_RATE_LIMIT = _get_int_env("FEEDBACK_NOTIFY_RATE_LIMIT", 3)
 _AUTH_FEEDBACK_NOTIFY_RATE_LIMIT = _get_int_env("AUTH_FEEDBACK_NOTIFY_RATE_LIMIT", 5)
 _NOTIFY_WINDOW_SECONDS = 7 * 24 * 3600.0  # 7 days
 _anon_notify_ip_history: dict[str, deque] = defaultdict(deque)
-_anon_notify_session_seen: set[str] = set()
+_anon_notify_session_seen: dict[str, float] = {}  # session_id -> timestamp; pruned on read
 _auth_notify_user_history: dict[str, deque] = defaultdict(deque)
 _anon_notify_lock = threading.Lock()
 _auth_notify_lock = threading.Lock()
 
 
 def _client_ip(req: Request) -> str:
-    xff = req.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    # Only trust X-Forwarded-For when running behind API Gateway / Lambda (where
+    # the header is injected by AWS and the raw socket is always a VPC hop).
+    # In all other environments fall back to the direct socket address to prevent
+    # clients from spoofing IPs to bypass the per-IP rate limiter.
+    if _IN_LAMBDA:
+        xff = req.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[0].strip()
     return req.client.host if req.client else "unknown"
 
 
@@ -159,16 +164,20 @@ def _should_notify_anon(ip: str, session_id: str) -> bool:
     if _FEEDBACK_NOTIFY_RATE_LIMIT <= 0:
         return False
     with _anon_notify_lock:
+        now = time.monotonic()
+        # Prune expired session records to prevent unbounded growth
+        expired = [sid for sid, ts in _anon_notify_session_seen.items() if now - ts > _NOTIFY_WINDOW_SECONDS]
+        for sid in expired:
+            del _anon_notify_session_seen[sid]
         if session_id in _anon_notify_session_seen:
             return False
-        now = time.monotonic()
         history = _anon_notify_ip_history[ip]
         while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
             history.popleft()
         if len(history) >= _FEEDBACK_NOTIFY_RATE_LIMIT:
             return False
         history.append(now)
-        _anon_notify_session_seen.add(session_id)
+        _anon_notify_session_seen[session_id] = now
         return True
 
 

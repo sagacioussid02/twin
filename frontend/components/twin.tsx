@@ -9,7 +9,7 @@ interface Message {
     id: string;
     role: 'user' | 'assistant';
     content: string;
-    timestamp: Date;
+    timestamp: Date | null;
     grounding?: {
         answer_type: string;
         confidence_label: string;
@@ -35,7 +35,7 @@ export default function Twin() {
         id: WELCOME_MESSAGE_ID,
         role: 'assistant',
         content: WELCOME_TEXT,
-        timestamp: new Date(),
+        timestamp: null, // null avoids SSR/client hydration mismatch
     }]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -43,7 +43,8 @@ export default function Twin() {
     const MAX_ANON_EXCHANGES = 5;
     const userMessageCount = messages.filter(m => m.role === 'user').length;
     const limitReached = !isSignedIn && userMessageCount >= MAX_ANON_EXCHANGES;
-    const showHints = userMessageCount === 0
+    const showHints = input.trim().length === 0
+        && userMessageCount === 0
         && messages.length === 1
         && messages[0].id === WELCOME_MESSAGE_ID;
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -68,7 +69,7 @@ export default function Twin() {
         };
 
         setMessages(prev => [...prev, userMessage]);
-        if (messageOverride === undefined) setInput('');
+        setInput('');
         setIsLoading(true);
 
         try {
@@ -192,7 +193,7 @@ export default function Twin() {
                                     message.role === 'user' ? 'text-slate-300' : 'text-gray-500'
                                 }`}
                             >
-                                {message.timestamp.toLocaleTimeString()}
+                                {message.timestamp?.toLocaleTimeString()}
                             </p>
                         </div>
 
