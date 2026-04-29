@@ -174,9 +174,12 @@ def _should_notify_anon(ip: str, session_id: str) -> bool:
         history = _anon_notify_ip_history[ip]
         while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
             history.popleft()
+        if not history:
+            # All entries expired; remove stale key to prevent unbounded dict growth
+            _anon_notify_ip_history.pop(ip, None)
         if len(history) >= _FEEDBACK_NOTIFY_RATE_LIMIT:
             return False
-        history.append(now)
+        _anon_notify_ip_history[ip].append(now)  # re-creates via defaultdict if key was just removed
         _anon_notify_session_seen[session_id] = now
         return True
 
@@ -195,9 +198,12 @@ def _should_notify_auth(chatter_id: str) -> bool:
         history = _auth_notify_user_history[chatter_id]
         while history and now - history[0] > _NOTIFY_WINDOW_SECONDS:
             history.popleft()
+        if not history:
+            # All entries expired; remove stale key to prevent unbounded dict growth
+            _auth_notify_user_history.pop(chatter_id, None)
         if len(history) >= _AUTH_FEEDBACK_NOTIFY_RATE_LIMIT:
             return False
-        history.append(now)
+        _auth_notify_user_history[chatter_id].append(now)  # re-creates via defaultdict if key was just removed
         return True
 
 
