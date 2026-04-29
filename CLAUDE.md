@@ -89,6 +89,9 @@ sessions/{session_id}.json       # Conversation history
 ### Dependency Management
 `backend/requirements.txt` and `backend/pyproject.toml` must stay in sync — Lambda packaging uses `requirements.txt` but local dev uses `pyproject.toml` (uv).
 
+### Anonymous feedback rate limiter
+`backend/server.py` keeps the feedback-notification rate-limiter state (anonymous per-IP rolling 7 days, authenticated per-`chatter_id` rolling 7 days, plus per-session one-shot behavior) in module-level memory, so it lives in the warm Lambda container and resets on cold start. Acceptable today because the SES daily quota is the hard ceiling and the only destination is `ADMIN_EMAILS`. If real abuse appears, move the limiter to DynamoDB or Redis.
+
 ## Deployment
 - CI/CD deploys automatically on push to `main` via `.github/workflows/deploy.yml`
 - Lambda is built inside a Docker container matching the Lambda runtime to ensure binary compatibility
@@ -108,6 +111,10 @@ sessions/{session_id}.json       # Conversation history
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 | `PERSONALITY_REVIEW_ENABLED` | `true` enables per-response archetype tone review (off by default; adds latency) |
 | `MEMORY_DIR` | Local sessions directory when `USE_S3=false` (default: `../memory`) |
+| `SES_FROM_EMAIL` | SES sender address for feedback/contact alerts. Empty disables all admin notifications. |
+| `ADMIN_EMAILS` | Comma-separated admin recipients for feedback/contact alerts. Empty disables notifications. |
+| `FEEDBACK_NOTIFY_RATE_LIMIT` | Max anonymous feedback notifications per source IP per rolling 7 days (default `3`; `0` disables the anonymous path while keeping the authenticated one) |
+| `AUTH_FEEDBACK_NOTIFY_RATE_LIMIT` | Max authenticated feedback notifications per `chatter_id` per rolling 7 days (default `5`; `0` disables the authenticated path while keeping the anonymous one) |
 
 **Frontend:**
 | Variable | Purpose |
