@@ -116,8 +116,14 @@ _CONNECT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 # Patterns to extract contact info shared voluntarily in chat by anonymous users
+# Compiled with IGNORECASE so triggers match any capitalisation. False positives
+# (e.g. "I'm not sure") are filtered in _extract_identity_from_history by
+# requiring the first character of the captured name to be uppercase — words
+# typed in title case almost always represent a proper name rather than a common
+# word.
 _NAME_IN_CHAT_RE = re.compile(
-    r"\b(?:i'?m|my name is|i am|call me|this is)\s+([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?)",
+    r"(?:my name is|call me|this is|i'?m|i am)\s+"
+    r"([A-Za-z][a-z]{1,20}(?:\s+[A-Za-z][a-z]{1,20})?)",
     re.IGNORECASE,
 )
 _EMAIL_IN_CHAT_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
@@ -140,7 +146,11 @@ def _extract_identity_from_history(
         if not name:
             m = _NAME_IN_CHAT_RE.search(text)
             if m:
-                name = m.group(1).strip().title()
+                captured = m.group(1).strip()
+                # Require first char to be uppercase so common words after
+                # "i'm" / "i am" (e.g. "not", "fine", "sure") are filtered out.
+                if captured and captured[0].isupper():
+                    name = captured.title()
         if not email:
             m = _EMAIL_IN_CHAT_RE.search(text)
             if m:
@@ -173,6 +183,18 @@ _anon_notify_session_seen: dict[str, float] = {}  # session_id -> timestamp; pru
 _auth_notify_user_history: dict[str, deque] = defaultdict(deque)
 _anon_notify_lock = threading.Lock()
 _auth_notify_lock = threading.Lock()
+
+
+def _truncate_ip(ip: str) -> str:
+    """Return a /24-truncated IPv4 address (last octet zeroed) for reduced PII.
+
+    IPv6 addresses and non-parseable values are returned unchanged.
+    Example: '1.2.3.4' → '1.2.3.x'
+    """
+    parts = ip.split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return f"{parts[0]}.{parts[1]}.{parts[2]}.x"
+    return ip
 
 
 def _client_ip(req: Request) -> str:
@@ -951,7 +973,7 @@ async def chat(
                         identity_lines.append(f"Name (from chat): {name}")
                     if shared_email:
                         identity_lines.append(f"Email (from chat): {shared_email}")
-                    identity_lines.append(f"IP: {ip}")
+                    identity_lines.append(f"IP: {_truncate_ip(ip)}")
                     identity_lines.append(f"Session: {session_id}")
                     notify_message = request.message + "\n\n" + "\n".join(identity_lines)
                 try:
