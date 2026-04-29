@@ -121,8 +121,18 @@ _CONNECT_RE = re.compile(
 # to deter bot/DDoS abuse of the SES path. State lives in the warm Lambda
 # container; cold starts reset it. For stricter enforcement across horizontal
 # scale, move state to DynamoDB or Redis. SES daily quota is the hard ceiling.
-_FEEDBACK_NOTIFY_RATE_LIMIT = int(os.getenv("FEEDBACK_NOTIFY_RATE_LIMIT", "3"))
-_AUTH_FEEDBACK_NOTIFY_RATE_LIMIT = int(os.getenv("AUTH_FEEDBACK_NOTIFY_RATE_LIMIT", "5"))
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+_FEEDBACK_NOTIFY_RATE_LIMIT = _get_int_env("FEEDBACK_NOTIFY_RATE_LIMIT", 3)
+_AUTH_FEEDBACK_NOTIFY_RATE_LIMIT = _get_int_env("AUTH_FEEDBACK_NOTIFY_RATE_LIMIT", 5)
 _NOTIFY_WINDOW_SECONDS = 7 * 24 * 3600.0  # 7 days
 _anon_notify_ip_history: dict[str, deque] = defaultdict(deque)
 _anon_notify_session_seen: set[str] = set()
