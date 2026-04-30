@@ -115,6 +115,49 @@ _CONNECT_RE = re.compile(
     r')\b',
     re.IGNORECASE | re.DOTALL,
 )
+# Patterns to extract contact info shared voluntarily in chat by anonymous users
+# Compiled with IGNORECASE so triggers match any capitalisation. False positives
+# (e.g. "I'm not sure") are filtered in _extract_identity_from_history by
+# requiring the first character of the captured name to be uppercase — words
+# typed in title case almost always represent a proper name rather than a common
+# word.
+_NAME_IN_CHAT_RE = re.compile(
+    r"(?:my name is|call me|this is|i'?m|i am)\s+"
+    r"([A-Za-z][a-z]{1,20}(?:\s+[A-Za-z][a-z]{1,20})?)",
+    re.IGNORECASE,
+)
+_EMAIL_IN_CHAT_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+
+def _extract_identity_from_history(
+    history: list, current_message: str = ""
+) -> tuple[Optional[str], Optional[str]]:
+    """Scan user messages (oldest-first, plus current message) for a name/email.
+
+    Returns (name, email) — either may be None if not found.
+    Scans the current message first so a same-turn disclosure is captured.
+    """
+    candidates = [current_message] + [
+        m.get("content", "") for m in history if m.get("role") == "user"
+    ]
+    name: Optional[str] = None
+    email: Optional[str] = None
+    for text in candidates:
+        if not name:
+            m = _NAME_IN_CHAT_RE.search(text)
+            if m:
+                captured = m.group(1).strip()
+                # Require first char to be uppercase so common words after
+                # "i'm" / "i am" (e.g. "not", "fine", "sure") are filtered out.
+                if captured and captured[0].isupper():
+                    name = captured.title()
+        if not email:
+            m = _EMAIL_IN_CHAT_RE.search(text)
+            if m:
+                email = m.group(0)
+        if name and email:
+            break
+    return name, email
 
 
 # ── Feedback notification rate limiting ───────────────────────────────────────
@@ -140,6 +183,18 @@ _anon_notify_session_seen: dict[str, float] = {}  # session_id -> timestamp; pru
 _auth_notify_user_history: dict[str, deque] = defaultdict(deque)
 _anon_notify_lock = threading.Lock()
 _auth_notify_lock = threading.Lock()
+
+
+def _truncate_ip(ip: str) -> str:
+    """Return a /24-truncated IPv4 address (last octet zeroed) for reduced PII.
+
+    IPv6 addresses and non-parseable values are returned unchanged.
+    Example: '1.2.3.4' → '1.2.3.x'
+    """
+    parts = ip.split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return f"{parts[0]}.{parts[1]}.{parts[2]}.x"
+    return ip
 
 
 def _client_ip(req: Request) -> str:
@@ -329,16 +384,19 @@ def _find_key(jwks: dict, kid: str) -> Optional[dict]:
     return next((k for k in keys if k.get("kid") == kid), None)
 
 
-async def _decode_user_id(credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
-    """Decode user_id from credentials.
+async def _decode_user_claims(
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> tuple[Optional[str], Optional[str]]:
+    """Decode user_id and email from credentials.
 
-    Returns None for missing credentials or JWT validation failures (expired,
-    bad signature, unknown kid). Propagates 5xx HTTPExceptions from auth
-    infrastructure (JWKS fetch timeout, misconfigured CLERK_JWKS_URL, etc.) so
-    callers can surface them correctly rather than masking outages as 401s.
+    Returns (user_id, email) tuple — either field may be None on missing
+    credentials or JWT validation failures (expired, bad signature, unknown kid).
+    Propagates 5xx HTTPExceptions from auth infrastructure (JWKS fetch timeout,
+    misconfigured CLERK_JWKS_URL, etc.) so callers can surface them correctly
+    rather than masking outages as 401s.
     """
     if not credentials:
-        return None
+        return None, None
     token = credentials.credentials
     try:
         header = jwt.get_unverified_header(token)
@@ -351,7 +409,7 @@ async def _decode_user_id(credentials: Optional[HTTPAuthorizationCredentials]) -
             jwks = await _get_jwks(force_refresh=True)
             key = _find_key(jwks, kid)
         if key is None:
-            return None
+            return None, None
 
         public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
         decode_options: dict = {}
@@ -366,14 +424,23 @@ async def _decode_user_id(credentials: Optional[HTTPAuthorizationCredentials]) -
             options=decode_options,
         )
         user_id: str = payload.get("sub", "")
-        return user_id or None
+        email: str = payload.get("email", "")
+        return user_id or None, email or None
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         # Token is bad/expired — treat as anonymous, don't raise
-        return None
+        return None, None
     except HTTPException as exc:
         if exc.status_code >= 500:
             raise  # Auth infrastructure failure — propagate so it surfaces correctly
-        return None  # 4xx from auth layer — treat as invalid token
+        return None, None  # 4xx from auth layer — treat as invalid token
+
+
+async def _decode_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> Optional[str]:
+    """Convenience wrapper — returns just the user_id from _decode_user_claims."""
+    user_id, _ = await _decode_user_claims(credentials)
+    return user_id
 
 
 async def get_current_user_id(
@@ -793,7 +860,7 @@ async def chat(
 ):
     try:
         # Resolve caller identity (optional — anonymous callers are allowed)
-        chatter_id = await _decode_user_id(credentials)
+        chatter_id, user_email = await _decode_user_claims(credentials)
 
         # Derive an opaque stable session key for authenticated users so memory
         # persists across devices and page reloads. Anonymous users fall back to
@@ -895,15 +962,20 @@ async def chat(
                     )
             if should_notify:
                 if viewer_is_authenticated:
-                    notify_message = (
-                        f"{request.message}\n\n"
-                        f"Authenticated chatter_id: {chatter_id}"
-                    )
+                    identity = f"Email: {user_email}" if user_email else f"chatter_id: {chatter_id}"
+                    notify_message = f"{request.message}\n\nFrom: {identity}"
                 else:
-                    notify_message = (
-                        f"{request.message}\n\n"
-                        f"Anonymous session: {session_id}"
+                    name, shared_email = _extract_identity_from_history(
+                        conversation, request.message
                     )
+                    identity_lines = []
+                    if name:
+                        identity_lines.append(f"Name (from chat): {name}")
+                    if shared_email:
+                        identity_lines.append(f"Email (from chat): {shared_email}")
+                    identity_lines.append(f"IP: {_truncate_ip(ip)}")
+                    identity_lines.append(f"Session: {session_id}")
+                    notify_message = request.message + "\n\n" + "\n".join(identity_lines)
                 try:
                     await asyncio.wait_for(
                         _notify_connect_intent(
