@@ -36,6 +36,8 @@ function TwinChat({ twinId, twinName }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const userMessageCount = messages.filter(m => m.role === 'user').length;
+  const showConnectTip = userMessageCount >= 2;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -206,6 +208,14 @@ function TwinChat({ twinId, twinName }: Props) {
             <Send className="w-5 h-5" />
           </button>
         </div>
+        {showConnectTip && (
+          <p className="mt-2 text-xs text-gray-400">
+            💡 <span className="font-medium">Tip:</span> Want to reach {twinName} directly? Just say something like{' '}
+            <span className="italic">&ldquo;I have some feedback if you can pass that along&rdquo;</span>,{' '}
+            <span className="italic">&ldquo;could someone from the team reach me?&rdquo;</span>, or{' '}
+            <span className="italic">&ldquo;how do I get in touch with the real person?&rdquo;</span>
+          </p>
+        )}
       </div>
     </div>
   );

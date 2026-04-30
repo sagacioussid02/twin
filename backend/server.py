@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import field_validator
@@ -288,6 +288,87 @@ async def _notify_connect_intent(user_message: str, session_id: str, twin_name: 
         print(f"[notify] Connect alert sent for session {session_id}")
     except Exception as exc:
         print(f"[notify] Failed to send connect alert: {exc}")
+
+
+# Intent classification model — cheapest/fastest; only needs YES/NO
+_INTENT_MODEL_ID = "amazon.nova-micro-v1:0"
+_INTENT_PROMPT = (
+    "Does the following message express an intent to give feedback, "
+    "leave a review, contact the creator, pass along a message, "
+    "or connect with the person behind this app? "
+    "Reply with only YES or NO.\n\nMessage: "
+)
+
+
+async def _classify_feedback_intent(message: str) -> bool:
+    """
+    Returns True if the message expresses feedback/contact intent.
+    Uses a Bedrock Nova Micro classifier (temperature=0, maxTokens=5).
+    Falls back to _CONNECT_RE if the Bedrock call fails.
+    """
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=_INTENT_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": _INTENT_PROMPT + message}]}],
+            inferenceConfig={"maxTokens": 5, "temperature": 0},
+        )
+        answer = response["output"]["message"]["content"][0]["text"].strip().upper()
+        result = answer.startswith("YES")
+        print(f"[intent] LLM classified message as {'CONNECT' if result else 'NORMAL'}")
+        return result
+    except Exception as exc:
+        print(f"[intent] LLM classification failed, falling back to regex: {exc}")
+        return bool(_CONNECT_RE.search(message))
+
+
+async def _send_notify_if_intent(
+    message: str,
+    session_id: str,
+    twin_name: str,
+    viewer_is_authenticated: bool,
+    chatter_id: Optional[str],
+    user_email: Optional[str],
+    ip: str,
+    conversation: list,
+) -> None:
+    """
+    Background task: classify intent with LLM, then send SES notification if
+    feedback/contact intent is detected and rate limits allow.
+    """
+    is_connect = await _classify_feedback_intent(message)
+    if not is_connect:
+        return
+
+    if viewer_is_authenticated:
+        should_notify = _should_notify_auth(chatter_id)
+        if not should_notify:
+            print(f"[notify] Auth notification suppressed by rate limit (chatter_id={chatter_id})")
+            return
+        identity = f"Email: {user_email}" if user_email else f"chatter_id: {chatter_id}"
+        notify_message = f"{message}\n\nFrom: {identity}"
+    else:
+        should_notify = _should_notify_anon(ip, session_id)
+        if not should_notify:
+            print(f"[notify] Anon notification suppressed by rate limit (ip={ip}, session={session_id})")
+            return
+        name, shared_email = _extract_identity_from_history(conversation, message)
+        identity_lines = []
+        if name:
+            identity_lines.append(f"Name (from chat): {name}")
+        if shared_email:
+            identity_lines.append(f"Email (from chat): {shared_email}")
+        identity_lines.append(f"IP: {_truncate_ip(ip)}")
+        identity_lines.append(f"Session: {session_id}")
+        notify_message = message + "\n\n" + "\n".join(identity_lines)
+
+    try:
+        await asyncio.wait_for(
+            _notify_connect_intent(notify_message, session_id, twin_name),
+            timeout=5.0,
+        )
+    except Exception:
+        pass
 
 # ── Public personas ────────────────────────────────────────────────────────────
 # Loaded once at startup from backend/public_personas/*.json.
@@ -858,6 +939,7 @@ def _derive_session_id(chatter_id: str, twin_id: str) -> str:
 async def chat(
     request: ChatRequest,
     http_request: Request,
+    background_tasks: BackgroundTasks,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ):
     try:
@@ -942,51 +1024,19 @@ async def chat(
         viewer_is_authenticated = chatter_id is not None
 
         # Notify admin when a user asks to give feedback / contact the creator.
-        # Both anonymous and authenticated callers are rate-limited (rolling
-        # 7-day windows; see FEEDBACK_NOTIFY_RATE_LIMIT and
-        # AUTH_FEEDBACK_NOTIFY_RATE_LIMIT). Suppressed notifications still
-        # return a normal chat response.
-        if _CONNECT_RE.search(request.message):
-            if viewer_is_authenticated:
-                should_notify = _should_notify_auth(chatter_id)
-                if not should_notify:
-                    print(
-                        f"[notify] Authenticated notification suppressed by rate limit "
-                        f"(chatter_id={chatter_id})"
-                    )
-            else:
-                ip = _client_ip(http_request)
-                should_notify = _should_notify_anon(ip, session_id)
-                if not should_notify:
-                    print(
-                        f"[notify] Anonymous notification suppressed by rate limit "
-                        f"(ip={ip}, session={session_id})"
-                    )
-            if should_notify:
-                if viewer_is_authenticated:
-                    identity = f"Email: {user_email}" if user_email else f"chatter_id: {chatter_id}"
-                    notify_message = f"{request.message}\n\nFrom: {identity}"
-                else:
-                    name, shared_email = _extract_identity_from_history(
-                        conversation, request.message
-                    )
-                    identity_lines = []
-                    if name:
-                        identity_lines.append(f"Name (from chat): {name}")
-                    if shared_email:
-                        identity_lines.append(f"Email (from chat): {shared_email}")
-                    identity_lines.append(f"IP: {_truncate_ip(ip)}")
-                    identity_lines.append(f"Session: {session_id}")
-                    notify_message = request.message + "\n\n" + "\n".join(identity_lines)
-                try:
-                    await asyncio.wait_for(
-                        _notify_connect_intent(
-                            notify_message, session_id, twin_name or "Sidd"
-                        ),
-                        timeout=3.0,
-                    )
-                except Exception:
-                    pass
+        # Classification runs in the background (zero latency to the chat response).
+        # Rate limiting and identity extraction happen inside _send_notify_if_intent.
+        background_tasks.add_task(
+            _send_notify_if_intent,
+            message=request.message,
+            session_id=session_id,
+            twin_name=twin_name or "Sidd",
+            viewer_is_authenticated=viewer_is_authenticated,
+            chatter_id=chatter_id,
+            user_email=user_email,
+            ip=_client_ip(http_request),
+            conversation=list(conversation),  # snapshot so history mutations don't race
+        )
 
         orchestration = run_chat_orchestration(
             twin_data=twin_data,

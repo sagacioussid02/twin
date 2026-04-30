@@ -47,6 +47,7 @@ export default function Twin() {
         && userMessageCount === 0
         && messages.length === 1
         && messages[0].id === WELCOME_MESSAGE_ID;
+    const showConnectTip = !limitReached && userMessageCount >= 2;
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -287,6 +288,14 @@ export default function Twin() {
                             <Send className="w-5 h-5" />
                         </button>
                     </div>
+                    {showConnectTip && (
+                        <p className="mt-2 text-xs text-gray-400">
+                            💡 <span className="font-medium">Tip:</span> Want to reach Sidd directly? Just say something like{' '}
+                            <span className="italic">&ldquo;I have some feedback if you can pass that along&rdquo;</span>,{' '}
+                            <span className="italic">&ldquo;could someone from the team reach me?&rdquo;</span>, or{' '}
+                            <span className="italic">&ldquo;how do I get in touch with the real person?&rdquo;</span>
+                        </p>
+                    )}
                 </div>
             )}
         </div>
