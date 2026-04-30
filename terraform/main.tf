@@ -234,6 +234,7 @@ resource "aws_lambda_function" "api" {
       SESSION_HMAC_SECRET = var.session_hmac_secret
       SES_FROM_EMAIL      = var.ses_from_email
       ADMIN_EMAILS        = var.admin_emails
+      SES_REGION          = var.ses_region
     }
   }
 

@@ -82,3 +82,9 @@ variable "admin_emails" {
   type        = string
   default     = ""
 }
+
+variable "ses_region" {
+  description = "AWS region where the SES sender identity is verified (must match the region used by the Lambda SES client)"
+  type        = string
+  default     = "us-east-1"
+}
