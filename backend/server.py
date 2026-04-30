@@ -98,9 +98,9 @@ TWINS_S3_PREFIX = "twins/"
 _TWIN_ID_RE = re.compile(r'^[a-f0-9]{32}$')
 
 # ── Connect-to-creator notifications (AWS SES — no passwords, uses IAM role) ──
-_SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "")
+_SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "").strip()
 _ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
-_SES_REGION = os.getenv("SES_REGION") or os.getenv("DEFAULT_AWS_REGION") or "us-east-1"
+_SES_REGION = (os.getenv("SES_REGION") or os.getenv("DEFAULT_AWS_REGION") or "us-east-1").strip()
 _ses_client = boto3.client("ses", region_name=_SES_REGION) if _SES_FROM_EMAIL else None
 
 _CONNECT_RE = re.compile(

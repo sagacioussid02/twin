@@ -191,7 +191,7 @@ resource "aws_iam_role_policy" "lambda_s3" {
 }
 
 resource "aws_iam_role_policy" "lambda_ses" {
-  count = var.ses_from_email != "" ? 1 : 0
+  count = trimspace(var.ses_from_email) != "" ? 1 : 0
   name  = "${local.name_prefix}-lambda-ses"
   role  = aws_iam_role.lambda_role.id
 
@@ -204,7 +204,7 @@ resource "aws_iam_role_policy" "lambda_ses" {
         Resource = "*"
         Condition = {
           StringEquals = {
-            "ses:FromAddress" = var.ses_from_email
+            "ses:FromAddress" = trimspace(var.ses_from_email)
           }
         }
       }
@@ -232,9 +232,9 @@ resource "aws_lambda_function" "api" {
       BEDROCK_MODEL_ID    = var.bedrock_model_id
       CLERK_JWKS_URL      = var.clerk_jwks_url
       SESSION_HMAC_SECRET = var.session_hmac_secret
-      SES_FROM_EMAIL      = var.ses_from_email
-      ADMIN_EMAILS        = var.admin_emails
-      SES_REGION          = var.ses_region
+      SES_FROM_EMAIL      = trimspace(var.ses_from_email)
+      ADMIN_EMAILS        = trimspace(var.admin_emails)
+      SES_REGION          = trimspace(var.ses_region)
     }
   }
 
